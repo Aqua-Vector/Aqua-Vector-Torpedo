@@ -15,24 +15,20 @@
 
 | 브랜치 | 용도 |
 |---|---|
-| `main` | 릴리즈 전용 — 직접 push 금지 |
-| `develop` | 통합 브랜치 — 매일 아침 머지 대상 |
+| `maater` | 릴리즈 전용 — 직접 push 금지 |
+| `dev` | 통합 브랜치 — 매일 아침 머지 대상 |
 
 ### 작업 브랜치 명명
 
 ```
-type/github id/기능명
+기능명/github id
 ```
 
 소문자, 하이픈 구분
 
 ```
-feat/chanseok/ins-mahony
-fix/jemin/servo-pwm-timing
-refactor/chanseok/shared-state
-docs/jemin/rs485-protocol
-test/chanseok/imu-fake-inject
-build/jemin/docker-petalinux
+INS/ckstjrl
+RC/cleanaftereat
 ```
 
 ---
