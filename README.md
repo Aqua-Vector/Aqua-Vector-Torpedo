@@ -13,4 +13,4 @@ IMU 기반 INS 연산 및 조타 명령 실행을 담당한다.
 
 ## 협업 규칙
 
-[`RULE.md`](./RULE.md) 참고
+[`RULE.md`](https://github.com/Aqua-Vector/Aqua-Vector-Torpedo/blob/master/docs/RULE.md) 참고
