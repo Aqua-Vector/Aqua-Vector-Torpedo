@@ -572,6 +572,63 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
+# ─── Build artifacts ───
+# 컴파일된 실행 파일 (확장자 없음)
+test_iimu
+test_eskf_state
+test_eskf_estimator
+test_eskf_predict_p_growth
+test_eskf_predict_stationary
+test_eskf_predict_yaw_rotation
+
+# 일반 빌드 산출물
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.exe
+*.out
+*.app
+
+# ─── Build directories ───
+build/
+out/
+bin/
+dist/
+
+# ─── Editor / IDE ───
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS files ───
+.DS_Store
+Thumbs.db
+
+# ─── Logs and temp files ───
+*.log
+*.tmp
+core
+core.*
+
+# ─── CMake ───
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# ─── Local测 measurement data (옵션) ───
+# 큰 측정 CSV 파일 무시하려면 주석 해제
+# *.csv
+# data/raw/
+
+# ─── Compiled docs ───
+*.pdf
+
 ### VisualStudio Patch ###
 # Additional files built by Visual Studio
 
