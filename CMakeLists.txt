@@ -40,7 +40,10 @@ set(EBIMU_SOURCES
 )
 
 add_library(ebimu_core STATIC ${EBIMU_SOURCES})
-target_include_directories(ebimu_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(ebimu_core PUBLIC 
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/ebimu
+)
 target_link_libraries(ebimu_core PUBLIC Threads::Threads)
 if(TARGET Eigen3::Eigen)
     target_link_libraries(ebimu_core PUBLIC Eigen3::Eigen)
@@ -85,7 +88,17 @@ set(CORE_SOURCES
 )
 
 add_library(torpedo_core STATIC ${CORE_SOURCES})
-target_include_directories(torpedo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(torpedo_core PUBLIC 
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/communication
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/protocol
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/control
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/actuator
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/guidance
+)
 target_link_libraries(torpedo_core PUBLIC ebimu_core) # ebimu_core에 의존
 
 # ─── 5. 실행 파일 ───
