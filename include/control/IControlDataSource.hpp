@@ -1,6 +1,7 @@
 #ifndef I_CONTROL_DATA_SOURCE_HPP_
 #define I_CONTROL_DATA_SOURCE_HPP_
 
+#include <cstdint>
 #include "ControlTypes.hpp"
 
 class IControlDataSource {
