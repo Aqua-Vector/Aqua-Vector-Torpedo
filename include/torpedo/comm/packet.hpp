@@ -40,7 +40,6 @@ struct __attribute__((packed)) UplinkPacket {
     uint32_t timestamp_us;
     uint16_t seq;
     float    p_x, p_y;              // ESKF 추정 위치 (m), 2D
-    float    v_x, v_y;              // 추정 속도 (m/s), 2D
     float    yaw;                   // yaw (rad)
     uint8_t  status_flags;          // StatusFlag OR-bitmap
     uint8_t  reserved;
@@ -49,6 +48,6 @@ struct __attribute__((packed)) UplinkPacket {
 
 // -------- 패킷 크기 검증 --------
 static_assert(sizeof(DownlinkPacket) == 25, "DownlinkPacket size mismatch");
-static_assert(sizeof(UplinkPacket) == 31, "UplinkPacket size mismatch");
+static_assert(sizeof(UplinkPacket) == 23, "UplinkPacket size mismatch");
 
 } // namespace torpedo

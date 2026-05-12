@@ -13,8 +13,8 @@ int main() {
     // ─── Test 1: 패킷 크기 ───
     printf("[Test 1] 패킷 크기 검증\n");
     printf("  DownlinkPacket = %zu byte (expected 25)\n", sizeof(DownlinkPacket));
-    printf("  UplinkPacket   = %zu byte (expected 31)\n", sizeof(UplinkPacket));
-    if (sizeof(DownlinkPacket) != 25 || sizeof(UplinkPacket) != 31) {
+    printf("  UplinkPacket   = %zu byte (expected 23)\n", sizeof(UplinkPacket));
+    if (sizeof(DownlinkPacket) != 25 || sizeof(UplinkPacket) != 23) {
         printf("[FAIL] 패킷 크기 불일치\n");
         return 1;
     }
@@ -110,8 +110,6 @@ int main() {
         uplink.seq = 100;
         uplink.p_x = 1.0f;
         uplink.p_y = 2.0f;
-        uplink.v_x = 0.5f;
-        uplink.v_y = 0.1f;
         uplink.yaw = 1.57f;
         uplink.status_flags = static_cast<uint8_t>(StatusFlag::EskfOk);
         uplink.reserved = 0;
@@ -120,7 +118,7 @@ int main() {
         uint8_t buf[64];
         std::size_t n = serialize_uplink(uplink, buf);
         if (n != sizeof(UplinkPacket)) {
-            printf("[FAIL] 길이 잘못 (%zu, expected 31)\n", n);
+            printf("[FAIL] 길이 잘못 (%zu, expected 23)\n", n);
             return 1;
         }
         if (buf[0] != SYNC_UPLINK) {
