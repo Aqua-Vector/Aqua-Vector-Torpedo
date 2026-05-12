@@ -163,8 +163,6 @@ void MainLoop::send_uplink() {
     up.seq           = tx_seq_++;
     up.p_x           = x.p.x();
     up.p_y           = x.p.y();
-    up.v_x           = x.v.x();
-    up.v_y           = x.v.y();
     
     // yaw 추출 (quaternion → euler)
     auto euler = x.q.toRotationMatrix().eulerAngles(2, 1, 0);
