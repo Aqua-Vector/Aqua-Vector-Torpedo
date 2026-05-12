@@ -1,6 +1,8 @@
 #ifndef MATH_UTILS_HPP_
 #define MATH_UTILS_HPP_
 
+#include <cmath>
+
 namespace utils {
 
 	template <typename T>

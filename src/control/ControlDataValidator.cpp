@@ -1,20 +1,14 @@
-#ifndef CONTROL_DATA_VALIDATOR_HPP_
-#define CONTROL_DATA_VALIDATOR_HPP_
+#include "ControlDataValidator.hpp"
+#include "MathUtils.hpp"
 
-#include "ControlTypes.hpp"
+void ControlDataValidator::sanitize(ControlState& state) {
+    // NaN 또는 Inf 처리
+    if (!utils::isValid(state.velocity)) state.velocity = 0.0f;
+    if (!utils::isValid(state.rudder)) state.rudder = 0.0f;
+    if (!utils::isValid(state.elevator)) state.elevator = 0.0f;
 
-class ControlDataValidator {
-public:
-    static constexpr float MAX_VELOCITY = 100.0f;
-    static constexpr float MIN_VELOCITY = -100.0f;
-    
-    static constexpr float MAX_RUDDER = 45.0f;
-    static constexpr float MIN_RUDDER = -45.0f;
-    
-    static constexpr float MAX_ELEVATOR = 45.0f;
-    static constexpr float MIN_ELEVATOR = -45.0f;
-
-    static void sanitize(ControlState& state); 
-};
-
-#endif /* CONTROL_DATA_VALIDATOR_HPP_ */
+    // 범위 제한 (Clamping)
+    state.velocity = utils::clamp(state.velocity, MIN_VELOCITY, MAX_VELOCITY);
+    state.rudder = utils::clamp(state.rudder, MIN_RUDDER, MAX_RUDDER);
+    state.elevator = utils::clamp(state.elevator, MIN_ELEVATOR, MAX_ELEVATOR);
+}
