@@ -21,4 +21,11 @@ struct ControlState {
     uint64_t last_update_time_ms;
 };
 
+// 시스템 제어 모드
+enum class SystemMode {
+	MANUAL,
+	AUTO,
+	FAILSAFE
+};
+
 #endif /* CONTROL_TYPES_HPP_ */
