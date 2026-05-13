@@ -148,10 +148,13 @@ add_library(torpedo_core STATIC
     src/hal/system_clock.cpp
     src/sensor/fake_imu.cpp
     src/sensor/ism330dhcx_imu.cpp
+    src/sensor/imu_downsampler.cpp
     src/comm/spidev.cpp
     src/comm/rs485_port.cpp
     src/comm/packet_io.cpp
+    src/comm/crc16.cpp
     src/domain/estimator/eskf_estimator.cpp
+    src/domain/estimator/bias_calibrator.cpp
 )
 
 target_include_directories(torpedo_core PUBLIC
@@ -185,6 +188,9 @@ endfunction()
 # IIMU
 add_torpedo_test(test_iimu_compile)
 
+# Sensor — downsampler
+add_torpedo_test(test_imu_downsampler)
+
 # ESKF
 add_torpedo_test(test_eskf_state)
 add_torpedo_test(test_eskf_estimator_compile)
@@ -195,12 +201,19 @@ add_torpedo_test(test_eskf_update_lidar)
 add_torpedo_test(test_eskf_update_nhc)
 add_torpedo_test(test_eskf_integrated_cycle)
 
+# Bias calibrator
+add_torpedo_test(test_bias_calibrator)
+
 # Comm
 add_torpedo_test(test_packet_io)
 add_torpedo_test(test_rs485_port)
+add_torpedo_test(test_crc16)
 
 # ISM330DHCX
 add_torpedo_test(test_ism330dhcx_compile)
+
+# Integration sim
+add_torpedo_test(test_integration_sim)
 
 # ─── 빌드 정보 출력 ───
 message(STATUS "")
