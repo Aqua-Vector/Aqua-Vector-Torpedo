@@ -1,22 +1,31 @@
 // main_loop.hpp — 어뢰 메인 루프
 //
-// IMU → 신호처리(스킵) → ESKF predict → RS-485 수신/송신 → ESKF update
-// 100Hz 주기, usleep 기반 단순 타이밍.
+// 100Hz 주기로:
+//   - 사이클 안 8 sub-samples IMU read (Trimmed Mean)
+//   - bias 보정 + ESKF predict
+//   - RS-485 downlink 수신 → ESKF update_lidar (NaN 아니면)
+//   - NHC 조건부
+//   - Uplink 송신
 //
-// 참조: ADR-005 (ESKF), ADR-006 (외부 측정), ADR-007 (메인 루프 100Hz)
+// 시작 시 5초 정지 캘리브 → bias + 초기 자세 추정.
+//
+// 참조: ADR-001, ADR-005, ADR-006, ADR-007
 
 #pragma once
 
 #include "torpedo/sensor/iimu.hpp"
 #include "torpedo/sensor/ism330dhcx_imu.hpp"
+#include "torpedo/sensor/imu_downsampler.hpp"
 #include "torpedo/comm/rs485_port.hpp"
 #include "torpedo/comm/packet.hpp"
 #include "torpedo/comm/packet_io.hpp"
 #include "torpedo/domain/estimator/eskf_estimator.hpp"
 #include "torpedo/domain/estimator/bias_estimate.hpp"
+#include "torpedo/domain/estimator/bias_calibrator.hpp"
 
 #include <atomic>
 #include <cstdint>
+#include <string>
 
 namespace torpedo {
 
@@ -32,26 +41,26 @@ struct MainLoopConfig {
     float       dt           = 0.01f;       // 10ms = 100Hz
     int         period_us    = 10000;
     
+    // 캘리브
+    float       calib_duration_sec = 5.0f;
+    
     // 통계 출력 주기 (초)
     int         print_interval_sec = 1;
+    
+    // IImu 주입용 (테스트에서 FakeImu 가능)
+    IImu*       imu_override = nullptr;
 };
 
-/**
- * 어뢰 메인 루프.
- *
- * 사용:
- *   MainLoop loop;
- *   if (!loop.init(cfg)) return -1;
- *   loop.run();      // blocking, Ctrl+C로 중단
- *   loop.shutdown();
- */
 class MainLoop {
 public:
     MainLoop() = default;
     ~MainLoop() = default;
     
-    /// 초기화 (IMU, RS-485, ESKF 다)
+    /// 초기화 (IMU, RS-485, ESKF)
     bool init(const MainLoopConfig& cfg);
+    
+    /// 정지 캘리브레이션 실행 (5초)
+    bool calibrate();
     
     /// 메인 루프 실행 (blocking)
     void run();
@@ -62,15 +71,24 @@ public:
     /// 정리
     void shutdown();
     
+    // ── 테스트용 ──
+    const domain::EskfState& state() const;
+    
 private:
     MainLoopConfig    cfg_;
-    Ism330dhcxImu     imu_;
-    Rs485Port         rs485_;
-    domain::EskfEstimator     eskf_;
-    domain::BiasEstimate      bias_;  // 일단 0
+    
+    // IMU (실제 또는 fake, override 가능)
+    Ism330dhcxImu     real_imu_;
+    IImu*             imu_ = nullptr;
+    
+    Rs485Port             rs485_;
+    domain::EskfEstimator eskf_;
+    domain::BiasEstimate  bias_;
+    ImuDownsampler        downsampler_;
     
     std::atomic<bool> stop_requested_{false};
     bool              initialized_ = false;
+    bool              calibrated_  = false;
     
     uint16_t          tx_seq_ = 0;
     uint32_t          loop_count_ = 0;
@@ -78,9 +96,9 @@ private:
     uint32_t          downlink_count_ = 0;
     uint32_t          update_lidar_count_ = 0;
     
-    // 내부 메서드
     bool process_downlink();
     void send_uplink();
+    bool gather_sub_samples(ImuSample& out);  // 8 sub-samples → Trimmed Mean
 };
 
 } // namespace torpedo
