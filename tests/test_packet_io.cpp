@@ -2,6 +2,7 @@
 
 #include "torpedo/comm/packet.hpp"
 #include "torpedo/comm/packet_io.hpp"
+#include "torpedo/comm/crc16.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -30,10 +31,13 @@ int main() {
         original.target_y = 2.5f;
         original.torpedo_x = 1.55f;
         original.torpedo_y = 2.48f;
-        original.crc16 = 0x0000;
+        original.crc16 = 0x0000;  
 
         uint8_t buf[64];
         std::memcpy(buf, &original, sizeof(original));
+        
+        uint16_t crc = torpedo::crc16_ccitt(buf, 23);
+        std::memcpy(buf + 23, &crc, 2);
 
         DownlinkPacket parsed;
         bool ok = parse_downlink(buf, sizeof(original), parsed);
@@ -64,6 +68,8 @@ int main() {
 
         uint8_t buf[64];
         std::memcpy(buf, &pkt, sizeof(pkt));
+        uint16_t crc3 = torpedo::crc16_ccitt(buf, 23);
+        std::memcpy(buf + 23, &crc3, 2);
 
         DownlinkPacket parsed;
         parse_downlink(buf, sizeof(pkt), parsed);
