@@ -101,6 +101,7 @@ target_include_directories(torpedo_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include/common
     ${CMAKE_CURRENT_SOURCE_DIR}/include/control
     ${CMAKE_CURRENT_SOURCE_DIR}/include/actuator
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/hal
     ${CMAKE_CURRENT_SOURCE_DIR}/include/guidance
 )
 target_link_libraries(torpedo_core PUBLIC ebimu_core Threads::Threads)
@@ -154,4 +155,5 @@ target_link_libraries(hw_test_lidar_ins_integrated PRIVATE torpedo_core)
 message(STATUS "===== Aqua-Vector-Torpedo 빌드 설정 (통합) =====")
 message(STATUS "  버전:      ${PROJECT_VERSION}")
 message(STATUS "  빌드 타입: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  C++ 표준:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "==========================================")
