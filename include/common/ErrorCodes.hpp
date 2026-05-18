@@ -23,7 +23,11 @@ enum class ErrorCode : uint16_t {
 	// Actuator Manager
 	ERR_PROPELLER_INIT_FAIL = 301,
 	ERR_RUDDER_INIT_FAIL = 302,
-	ERR_ELEVATOR_INIT_FAIL = 303
+	ERR_ELEVATOR_INIT_FAIL = 303,
+
+	// Generic Hardware/IO
+	ERR_HW_INIT_FAILED = 401,
+	ERR_IO_WRITE_FAILED = 402
 };
 
 #endif /* ERROR_CODES_HPP_ */

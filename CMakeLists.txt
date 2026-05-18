@@ -71,6 +71,9 @@ set(CORE_SOURCES
     src/control/ModeMux.cpp
     src/control/ManualSource.cpp
     src/control/AutoSource.cpp
+    src/actuator/ActuatorManager.cpp
+    src/actuator/ServoMotor.cpp
+    src/hal/LinuxPwmChannel.cpp
 )
 
 add_library(torpedo_core STATIC ${CORE_SOURCES})
@@ -84,6 +87,8 @@ target_include_directories(torpedo_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/include/common
     ${CMAKE_CURRENT_SOURCE_DIR}/include/control
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/actuator
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/hal
 )
 
 # 라이브러리 링크 (Eigen, Pthread)
@@ -116,6 +121,7 @@ endfunction()
 add_torpedo_test(test_iimu_compile)
 add_torpedo_test(test_imu_downsampler)
 add_torpedo_test(test_eskf_state)
+add_torpedo_test(test_actuator)
 # add_torpedo_test(test_mux)
 
 # ─── 6. 빌드 정보 출력 ───
@@ -124,6 +130,9 @@ message(STATUS "===== Aqua-Vector-Torpedo 빌드 설정 =====")
 message(STATUS "  버전:      ${PROJECT_VERSION}")
 message(STATUS "  빌드 타입: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  컴파일러:  ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "  C++ 표준:  ${CMAKE_CXX_STANDARD}")
+message(STATUS "==========================================")
+message(STATUS "")
 message(STATUS "  C++ 표준:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "==========================================")
 message(STATUS "")
