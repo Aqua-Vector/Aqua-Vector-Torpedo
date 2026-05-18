@@ -2,11 +2,16 @@
 #include <memory>
 #include <iomanip>
 #include "control/ManualSource.hpp"
+#include "control/AutoSource.hpp"
 #include "control/ModeMux.hpp"
 
 // 테스트 결과를 보기 좋게 출력하는 헬퍼 함수
 void printState(uint64_t time_ms, SystemMode mode, const ControlState& state) {
-    std::string mode_str = (mode == SystemMode::MANUAL) ? "MANUAL  " : "FAILSAFE";
+    std::string mode_str = "UNKNOWN ";
+    if (mode == SystemMode::MANUAL) mode_str = "MANUAL  ";
+    else if (mode == SystemMode::AUTO) mode_str = "AUTO    ";
+    else if (mode == SystemMode::FAILSAFE) mode_str = "FAILSAFE";
+
     std::cout << "[Time: " << std::setw(4) << time_ms << "ms] "
               << "Mode: " << mode_str
               << " | V: " << std::fixed << std::setprecision(1) << state.velocity 
@@ -58,6 +63,20 @@ int main() {
     
     ControlState recovered_state = mode_mux.processControlLoop(virtual_time_ms);
     printState(virtual_time_ms, mode_mux.getMode(), recovered_state);
+
+    std::cout << "\n>> 시나리오 5: AUTO 모드 전환 테스트\n";
+    auto auto_source = std::make_shared<AutoSource>();
+    ModeMux mode_mux_v2(manual_source, auto_source);
+    virtual_time_ms = 1000; // 새로운 시간대
+
+    // AUTO 모드로 설정
+    mode_mux_v2.setMode(SystemMode::AUTO);
+    
+    ControlState auto_packet = {10.0f, -20.0f, 5.0f};
+    auto_source->updateTargetState(auto_packet, virtual_time_ms);
+    
+    ControlState final_auto_state = mode_mux_v2.processControlLoop(virtual_time_ms);
+    printState(virtual_time_ms, mode_mux_v2.getMode(), final_auto_state);
 
     std::cout << "\n===========================================\n";
     return 0;
