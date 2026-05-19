@@ -14,7 +14,7 @@ private:
 	bool writeToFile(const std::string& filepath, const std::string& value);
 
 public:
-	LinuxPwmChannel(uint32_t pwm_index, const std::string& sysfs_path = "/sys/class/pwm/pwmchip0/");
+	LinuxPwmChannel(uint32_t chip_index, uint32_t channel_index, const std::string& base_sysfs = "/sys/class/pwm/");
 	virtual ~LinuxPwmChannel();
 
 	ErrorCode init(uint32_t period_ns) override;

@@ -25,17 +25,23 @@ public:
 
     PwmMockEnv() {
         root_path = "/tmp/gemini_pwm_test/";
-        pwm0_path = root_path + "pwm0/";
-        pwm1_path = root_path + "pwm1/";
+        std::string chip0_path = root_path + "pwmchip0/";
+        std::string chip1_path = root_path + "pwmchip1/";
+        pwm0_path = chip0_path + "pwm0/";
+        pwm1_path = chip1_path + "pwm0/";
 
         // Create directories
         mkdir(root_path.c_str(), 0777);
+        mkdir(chip0_path.c_str(), 0777);
+        mkdir(chip1_path.c_str(), 0777);
         mkdir(pwm0_path.c_str(), 0777);
         mkdir(pwm1_path.c_str(), 0777);
 
         // Create dummy files
-        createFile(root_path + "export", "");
-        createFile(root_path + "unexport", "");
+        createFile(chip0_path + "export", "");
+        createFile(chip0_path + "unexport", "");
+        createFile(chip1_path + "export", "");
+        createFile(chip1_path + "unexport", "");
         
         createFile(pwm0_path + "period", "0");
         createFile(pwm0_path + "duty_cycle", "0");
@@ -68,7 +74,7 @@ void test_slew_rate_limiting() {
     std::cout << "[Test] Slew Rate Limiting Check..." << std::endl;
     PwmMockEnv env;
     
-    LinuxPwmChannel pwm0(0, env.root_path);
+    LinuxPwmChannel pwm0(0, 0, env.root_path);
     ServoConfig config;
     config.period_ns = 20000000;    // 50Hz
     config.min_pulse_ns = 1000000;  // 1ms (-90 deg)
@@ -105,8 +111,8 @@ void test_failsafe_protection() {
     std::cout << "[Test] Failsafe & Invalid Input Check..." << std::endl;
     PwmMockEnv env;
     
-    LinuxPwmChannel pwm0(0, env.root_path);
-    LinuxPwmChannel pwm1(1, env.root_path);
+    LinuxPwmChannel pwm0(0, 0, env.root_path);
+    LinuxPwmChannel pwm1(1, 0, env.root_path);
     
     ServoConfig config;
     config.period_ns = 20000000;

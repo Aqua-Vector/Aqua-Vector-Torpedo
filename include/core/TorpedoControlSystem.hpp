@@ -84,6 +84,16 @@ public:
 	 */
 	void stop();
 
+	/**
+	 * @brief 시스템 실행 상태 확인
+	 */
+	bool isRunning() const { return is_running_.load(); }
+
+	/**
+	 * @brief STM32로부터 피드백 수신 콜백 (Public으로 변경하여 외부 핸들러에서 호출 가능)
+	 */
+	void onStm32FeedbackReceived(const FeedbackPayload& payload, uint64_t timestamp_ms);
+
 private:
 	/**
 	 * @brief 100Hz 주기 타이밍 루프
@@ -94,11 +104,6 @@ private:
 	 * @brief 단일 제어 사이클 실행 (Mux 판단 -> 데이터 획득 -> STM32/Actuator 명령)
 	 */
 	void processControlCycle(uint64_t current_time_ms);
-
-	/**
-	 * @brief STM32로부터 피드백 수신 내부 콜백
-	 */
-	void onStm32FeedbackReceived(const FeedbackPayload& payload, uint64_t timestamp_ms);
 };
 
 #endif /* TORPEDO_CONTROL_SYSTEM_HPP_*/
