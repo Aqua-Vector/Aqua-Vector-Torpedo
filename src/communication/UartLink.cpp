@@ -13,31 +13,41 @@ UartLink::UartLink(const std::string& device_path, int baud_rate)
 	}
 
 bool UartLink::initialize() {
-
-	// fd_ = open(device_path_.c_str(), O_RDWR | O_NOCTTY | O_NDELAY);
-	fd_ = open(device_path_.c_str(), O_RDWR | O_NOCTTY);
+	fd_ = open(device_path_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
 	if (fd_ == -1) return false;
 
 	struct termios options;
-	tcgetattr(fd_, &options);
+	std::memset(&options, 0, sizeof(options));
+	if (tcgetattr(fd_, &options) != 0) return false;
 
 	int baud = get_baud_constant(baud_rate_);
 	cfsetispeed(&options, baud);
 	cfsetospeed(&options, baud);
 
-	options.c_cflag |= (CLOCAL | CREAD);
-	options.c_cflag &= ~PARENB;
-	options.c_cflag &= ~CSTOPB;
-	options.c_cflag &= ~CSIZE;
-	options.c_cflag |= CS8;
-	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-	options.c_iflag &= ~(IXON | IXOFF | IXANY);
+	// 8N1, Raw Mode, No flow control
+	options.c_cflag |= (CLOCAL | CREAD | CS8);
+	options.c_cflag &= ~(PARENB | CSTOPB | CSIZE | CRTSCTS);
+	
+	// Disable software flow control and translations
+	options.c_iflag &= ~(IXON | IXOFF | IXANY | IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+	
+	// Raw output
 	options.c_oflag &= ~OPOST;
+	
+	// Raw input (non-canonical)
+	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
 
-	options.c_cc[VMIN] = 0;
-	options.c_cc[VTIME] = 1;
+	// Low latency: Return as soon as 1 byte is available
+	options.c_cc[VMIN] = 1;
+	options.c_cc[VTIME] = 0;
 
-	tcsetattr(fd_, TCSANOW, &options);
+	tcflush(fd_, TCIOFLUSH);
+	if (tcsetattr(fd_, TCSANOW, &options) != 0) return false;
+
+	// After setting termios, clear O_NONBLOCK to allow VMIN/VTIME to work as intended
+	int flags = fcntl(fd_, F_GETFL, 0);
+	fcntl(fd_, F_SETFL, flags & ~O_NONBLOCK);
+
 	return true;
 }
 

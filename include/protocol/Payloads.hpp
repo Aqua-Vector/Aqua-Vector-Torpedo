@@ -16,6 +16,7 @@ struct ControlPayload {
 struct FeedbackPayload {
 	float m1_rps;
 	float m2_rps;
+	uint16_t servo_pos;
 	uint8_t status;
 };
 

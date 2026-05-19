@@ -155,14 +155,21 @@ add_torpedo_test(test_actuator)
 add_torpedo_test(test_mux)
 add_torpedo_test(test_tcs)
 
-# Hardware Tests
+# Hardware & Manual Tests
 add_executable(hw_test_uplink tests/hw_test_uplink.cpp)
 target_link_libraries(hw_test_uplink PRIVATE torpedo_core)
 
 add_executable(hw_test_lidar_ins_integrated tests/hw_test_lidar_ins_integrated.cpp)
 target_link_libraries(hw_test_lidar_ins_integrated PRIVATE torpedo_core)
 
-# ─── 빌드 정보 출력 ───
+add_executable(hw_test_stm32 tests/hw_test_stm32.cpp)
+target_link_libraries(hw_test_stm32 PRIVATE torpedo_core)
+
+add_executable(test_stm_feedback tests/test_stm_feedback.cpp)
+target_link_libraries(test_stm_feedback PRIVATE torpedo_core)
+
+# ─── 7. 빌드 정보 출력 ───
+message(STATUS "")
 message(STATUS "===== Aqua-Vector-Torpedo 빌드 설정 (통합) =====")
 message(STATUS "  버전:      ${PROJECT_VERSION}")
 message(STATUS "  빌드 타입: ${CMAKE_BUILD_TYPE}")

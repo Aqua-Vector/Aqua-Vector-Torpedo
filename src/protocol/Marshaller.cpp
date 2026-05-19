@@ -62,6 +62,7 @@ namespace Marshaller {
 
 		ok &= view.writeFloat(data.m1_rps);
 		ok &= view.writeFloat(data.m2_rps);
+		ok &= view.write<uint16_t>(data.servo_pos);
 		ok &= view.write<uint8_t>(data.status);
 
 		return ok;
@@ -73,6 +74,7 @@ namespace Marshaller {
 
 		ok &= view.readFloat(data.m1_rps);
 		ok &= view.readFloat(data.m2_rps);
+		ok &= view.read<uint16_t>(data.servo_pos);
 		ok &= view.read<uint8_t>(data.status);
 
 		return ok;

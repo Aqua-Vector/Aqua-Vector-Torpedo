@@ -2,6 +2,7 @@
 #define GENERIC_PARSER_HPP_
 
 #include <array>
+#include <cstring>
 #include "CommInterfaces.hpp"
 #include "ControlTypes.hpp"
 #include "GenericPacket.hpp"
@@ -59,6 +60,7 @@ size_t GenericParser<Policy>::serialize(const GenericPacket<T, typename Policy::
 		return 0;
 	}
 
+	// Calculate CRC on [Function, Length, Payload...]
 	typename Policy::CrcType crc = Policy::calculateCrc(buffer + 2, 2 + payload_size);
 
 	for (size_t i = 0; i < sizeof(typename Policy::CrcType); ++i) {
@@ -82,6 +84,7 @@ void GenericParser<Policy>::parseByte(uint8_t byte, uint64_t timestamp_ms) {
 
 		case ParseState::WAIT_SYNC2:
 			if (byte == Policy::SYNC2) state_ = ParseState::READ_MSG_ID;
+			else if (byte == Policy::SYNC1) state_ = ParseState::WAIT_SYNC2;
 			else resetState();
 			break;
 
@@ -116,7 +119,8 @@ void GenericParser<Policy>::parseByte(uint8_t byte, uint64_t timestamp_ms) {
 			received_crc_ |= (static_cast<typename Policy::CrcType>(byte) << (crc_byte_count_ * 8));
 
 			if (++crc_byte_count_ >= sizeof(typename Policy::CrcType)) {
-				if (Policy::calculateCrc(buffer_, length_ +2) == received_crc_) {
+				// Verify CRC on [Function, Length, Payload...]
+				if (Policy::calculateCrc(buffer_, length_ + 2) == received_crc_) {
 					if (handlers_[msg_id_]) {
 						handlers_[msg_id_]->handle(buffer_ + 2, length_, timestamp_ms);
 					}
