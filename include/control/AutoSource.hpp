@@ -15,6 +15,8 @@ public:
 	bool fetchLatestState(ControlState& out_state, uint64_t& out_timestamp) override;
 
 	void updateTargetState(const ControlState& new_state, uint64_t timestamp);
+
+	Mailbox<ControlState>* getMailbox() { return &mailbox_; }
 };
 
 #endif /* AUTO_SOURCE_HPP_ */

@@ -30,6 +30,10 @@ public:
 
 		return (out_timestamp != 0);
 	}
+
+	uint64_t getLastUpdateTime() const {
+		return last_update_ms_.load(std::memory_order_acquire);
+	}
 };
 
 #endif /* MAILBOX_HPP_ */

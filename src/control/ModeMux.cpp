@@ -1,70 +1,58 @@
 #include "ModeMux.hpp"
-#include "ControlDataValidator.hpp"
+#include <algorithm>
 
-ModeMux::ModeMux(std::shared_ptr<IControlDataSource> manual_source, std::shared_ptr<IControlDataSource> auto_source)
-	: current_mode_(SystemMode::MANUAL), last_update_time_ms_(0), manual_source_(manual_source), auto_source_(auto_source) {
-		applyFailsafeState();
+ModeMux::ModeMux(Mailbox<ControlState>* manual_source, Mailbox<ControlState>* auto_source)
+	: current_mode_(SystemMode::MANUAL), manual_source_(manual_source), auto_source_(auto_source) {
+	setupSafeState();
+}
+
+void ModeMux::setupSafeState() {
+	ControlState safe_state = {0.0f, 0.0f, 0.0f, 0};
+	// 타임스탬프 0은 데이터가 없음을 의미할 수 있지만, 
+	// safe_mailbox는 항상 유효한(하지만 0인) 값을 주어야 하므로 1로 설정하거나 
+	// fetch 로직에서 0을 체크하는 부분을 고려해야 함. 
+	// 여기서는 단순히 모든 출력을 0으로 고정하는 용도.
+	safe_mailbox_.update(safe_state, 1); 
 }
 
 void ModeMux::setMode(SystemMode new_mode) {
-	current_mode_ = new_mode;
+	// LOCKDOWN 상태에서는 외부에서 모드를 변경할 수 없도록 강제 (수동 복구 로직 필요 시 확장)
+	if (current_mode_ != SystemMode::LOCKDOWN) {
+		current_mode_ = new_mode;
+	}
 }
 
 SystemMode ModeMux::getMode() const {
 	return current_mode_;
 }
 
-void ModeMux::applyFailsafeState() {
-	last_valid_state_.velocity = 0.0f;
-	last_valid_state_.rudder = 0.0f;
-	last_valid_state_.elevator = 0.0f;
+void ModeMux::notifyHardwareError() {
+	current_mode_ = SystemMode::LOCKDOWN;
 }
 
-ControlState ModeMux::processControlLoop(uint64_t current_time_ms) {
-	// FAILSAFE 락다운 확인 -> 수동 복구 전까지 새 데이터 무시
-	if (current_mode_ == SystemMode::FAILSAFE) {
-		applyFailsafeState();
-		ControlDataValidator::sanitize(last_valid_state_);
-		return last_valid_state_;
+Mailbox<ControlState>* ModeMux::getActiveMailbox(uint64_t current_time_ms) {
+	// 1. 하드웨어 락다운 또는 소프트웨어 FAILSAFE 상태면 Safe 반환
+	if (current_mode_ == SystemMode::LOCKDOWN || current_mode_ == SystemMode::FAILSAFE) {
+		return &safe_mailbox_;
 	}
 
-	ControlState fetch_state;
-	uint64_t data_timestamp = 0;
-	bool is_data_updated = false;
+	// 2. 현재 모드에 따른 대상 소스 결정
+	Mailbox<ControlState>* target_source = (current_mode_ == SystemMode::AUTO) ? auto_source_ : manual_source_;
 
-	// 모드에 따른 데이터 소스 접근
-	if (current_mode_ == SystemMode::MANUAL && manual_source_) {
-		is_data_updated = manual_source_->fetchLatestState(fetch_state, data_timestamp);
-	} else if (current_mode_ == SystemMode::AUTO && auto_source_) {
-		is_data_updated = auto_source_->fetchLatestState(fetch_state, data_timestamp);
+	if (!target_source) {
+		current_mode_ = SystemMode::FAILSAFE;
+		return &safe_mailbox_;
 	}
 
-	// Watchdog 로직
-	if (is_data_updated) {
-		if (current_time_ms >= data_timestamp) {
-			const uint64_t elapsed_time = current_time_ms - data_timestamp;
-
-			if (elapsed_time <= WATCHDOG_TIMEOUT_MS) {
-				last_valid_state_ = fetch_state;
-				last_update_time_ms_ = data_timestamp;
-			} else {
-				current_mode_ = SystemMode::FAILSAFE;
-			}
-		} else {
-			current_mode_ = SystemMode::FAILSAFE;
-		}
-	} else {
-		if (current_time_ms > WATCHDOG_TIMEOUT_MS) {
-			current_mode_ = SystemMode::FAILSAFE;
-		}
+	// 3. Watchdog 체크 (데이터 신선도 검사)
+	uint64_t last_update = target_source->getLastUpdateTime();
+	
+	// 데이터가 없거나, 시스템 시계가 꼬였거나(미래 데이터), 타임아웃이 발생한 경우
+	if (last_update == 0 || current_time_ms < last_update || (current_time_ms - last_update) > WATCHDOG_TIMEOUT_MS) {
+		current_mode_ = SystemMode::FAILSAFE;
+		return &safe_mailbox_;
 	}
 
-	// 루프 도중 FAILSAFE로 변경된 경우 처리
-	if (current_mode_ == SystemMode::FAILSAFE) {
-		applyFailsafeState();
-	}
-
-	ControlDataValidator::sanitize(last_valid_state_);
-
-	return last_valid_state_;
+	// 4. 모든 조건 만족 시 해당 소스 주소 반환
+	return target_source;
 }
