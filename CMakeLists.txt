@@ -92,19 +92,30 @@ set(CORE_SOURCES
 )
 
 add_library(torpedo_core STATIC ${CORE_SOURCES})
-target_include_directories(torpedo_core PUBLIC 
+
+# Include 디렉토리 설정
+target_include_directories(torpedo_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/hal
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/protocol
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/control
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/actuator
     ${CMAKE_CURRENT_SOURCE_DIR}/include/communication
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/protocol
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/common
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/control
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/actuator
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/hal
     ${CMAKE_CURRENT_SOURCE_DIR}/include/guidance
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/sensor
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/hal
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/domain
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/domain/estimator
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/comm
 )
-target_link_libraries(torpedo_core PUBLIC ebimu_core Threads::Threads)
+
+# 라이브러리 링크 (Team INS, Eigen, Pthread, Atomic)
+target_link_libraries(torpedo_core PUBLIC ebimu_core Threads::Threads atomic)
 
 if(TARGET Eigen3::Eigen)
     target_link_libraries(torpedo_core PUBLIC Eigen3::Eigen)
@@ -155,5 +166,6 @@ target_link_libraries(hw_test_lidar_ins_integrated PRIVATE torpedo_core)
 message(STATUS "===== Aqua-Vector-Torpedo 빌드 설정 (통합) =====")
 message(STATUS "  버전:      ${PROJECT_VERSION}")
 message(STATUS "  빌드 타입: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  컴파일러:  ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "  C++ 표준:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "==========================================")

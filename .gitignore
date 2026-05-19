@@ -612,7 +612,6 @@ Thumbs.db
 # ─── Logs and temp files ───
 *.log
 *.tmp
-core
 core.*
 
 # ─── CMake ───
