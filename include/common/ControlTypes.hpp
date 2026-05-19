@@ -25,7 +25,8 @@ struct ControlState {
 enum class SystemMode {
 	MANUAL,
 	AUTO,
-	FAILSAFE
+	FAILSAFE,
+	LOCKDOWN
 };
 
 #endif /* CONTROL_TYPES_HPP_ */

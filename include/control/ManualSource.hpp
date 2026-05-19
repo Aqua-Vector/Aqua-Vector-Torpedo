@@ -16,6 +16,8 @@ public:
 	bool fetchLatestState(ControlState& out_state, uint64_t& out_timestamp) override;
 
 	void onControlPacketReceived(const ControlPayload& payload, uint64_t timestamp);
+
+	Mailbox<ControlState>* getMailbox() { return &mailbox_; }
 };
 
 #endif /* MANUAL_SOURCE_HPP_ */
