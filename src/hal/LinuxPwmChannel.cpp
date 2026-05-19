@@ -3,15 +3,19 @@
 #include <fstream>
 #include <unistd.h>
 
-LinuxPwmChannel::LinuxPwmChannel(uint32_t pwm_index, const std::string& sysfs_path) : pwm_index_str_(std::to_string(pwm_index)) {
-	std::string normalized_path = sysfs_path;
-	if (normalized_path.empty() || normalized_path.back() != '/') {
-		normalized_path += "/";
+LinuxPwmChannel::LinuxPwmChannel(uint32_t chip_index, uint32_t channel_index, const std::string& base_sysfs) 
+	: pwm_index_str_(std::to_string(channel_index)) {
+	
+	std::string normalized_base = base_sysfs;
+	if (normalized_base.empty() || normalized_base.back() != '/') {
+		normalized_base += "/";
 	}
 
-	base_path_ = normalized_path + "pwm" + pwm_index_str_ + "/";
-	export_path_ = normalized_path + "export";
-	unexport_path_ = normalized_path + "unexport";
+	std::string chip_path = normalized_base + "pwmchip" + std::to_string(chip_index) + "/";
+	
+	base_path_ = chip_path + "pwm" + pwm_index_str_ + "/";
+	export_path_ = chip_path + "export";
+	unexport_path_ = chip_path + "unexport";
 }
 
 LinuxPwmChannel::~LinuxPwmChannel() {
