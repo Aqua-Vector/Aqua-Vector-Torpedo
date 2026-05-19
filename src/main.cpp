@@ -1,87 +1,154 @@
 #include <iostream>
+#include <csignal>
 #include <thread>
 #include <chrono>
-#include <iomanip>
 
+#include "TorpedoControlSystem.hpp"
 #include "NetworkManager.hpp"
 #include "UartLink.hpp"
 #include "TorpedoParser.hpp"
-#include "ControlHandlers.hpp"
+#include "STMControlParser.hpp"
+#include "ManualSource.hpp"
+#include "AutoSource.hpp"
+#include "ModeMux.hpp"
+#include "ActuatorManager.hpp"
+#include "LinuxPwmChannel.hpp"
 #include "ThreadSafeQueue.hpp"
-#include "GenericPacket.hpp"
+#include "ProtocolIds.hpp"
+#include "Payloads.hpp"
 #include "Marshaller.hpp"
 
-// [테스트용 핸들러] 데이터를 받으면 화면에 출력하여 검증
-class LoopbackTestHandler : public IMessageHandler {
-public:
-    bool handle(const uint8_t* payload, size_t payload_length, uint64_t timestamp_ms) override {
-        if (payload_length != sizeof(TorpedoTelemetryPayload)) return false;
+// Global pointer for signal handling to allow graceful shutdown
+static TorpedoControlSystem* g_tcs = nullptr;
 
-        TorpedoTelemetryPayload data;
-        if (Marshaller::deserialize(payload, payload_length, data)) {
-            std::cout << "\n[LOOPBACK SUCCESS]" << std::endl;
-            std::cout << " - Timestamp: " << timestamp_ms << " ms" << std::endl;
-            std::cout << " - Speed: " << data.speed << " m/s" << std::endl;
-            std::cout << " - Heading: " << data.heading << " deg" << std::endl;
-            std::cout << " - Position: (" << data.pos_x << ", " << data.pos_y << ")" << std::endl;
-            return true;
-        }
-        return false;
+/**
+ * @brief Signal handler for SIGINT (Ctrl+C) and SIGTERM
+ * Ensures actuators are stopped and threads are joined safely.
+ */
+void signalHandler(int signum) {
+    std::cout << "\n[Main] Signal (" << signum << ") received. Stopping system..." << std::endl;
+    if (g_tcs) {
+        g_tcs->stop();
+    }
+}
+
+/**
+ * @brief GCS Control Handler
+ * Handles control commands from Ground Control Station via TorpedoParser.
+ */
+class GcsControlHandler : public IMessageHandler {
+private:
+    ManualSource& manual_source_;
+public:
+    explicit GcsControlHandler(ManualSource& source) : manual_source_(source) {}
+    bool handle(const uint8_t* payload, size_t length, uint64_t timestamp_ms) override {
+        if (length != sizeof(ControlPayload)) return false;
+        
+        ControlPayload data;
+        Marshaller::deserialize(payload, length, data);
+        
+        // Update manual control source
+        manual_source_.onControlPacketReceived(data, timestamp_ms);
+        return true;
+    }
+};
+
+/**
+ * @brief STM32 Feedback Handler
+ * Handles feedback packets from STM32 motor controller via STMControlParser.
+ */
+class Stm32FeedbackHandler : public IMessageHandler {
+private:
+    TorpedoControlSystem& tcs_;
+public:
+    explicit Stm32FeedbackHandler(TorpedoControlSystem& tcs) : tcs_(tcs) {}
+    bool handle(const uint8_t* payload, size_t length, uint64_t timestamp_ms) override {
+        if (length != sizeof(FeedbackPayload)) return false;
+        
+        FeedbackPayload data;
+        Marshaller::deserialize(payload, length, data);
+        
+        // Update TCS with feedback
+        tcs_.onStm32FeedbackReceived(data, timestamp_ms);
+        return true;
     }
 };
 
 int main() {
-    std::cout << "====== Torpedo Loopback Test Start ======" << std::endl;
-    std::cout << "Connect Zynq TX and RX pins before starting." << std::endl;
+    std::cout << "================================================" << std::endl;
+    std::cout << "      Aqua Vector Torpedo Control System        " << std::endl;
+    std::cout << "================================================" << std::endl;
 
-    // 1. 부품 준비
-    TorpedoParser parser;
-    UartLink uart("/dev/ttyPS1", 115200); // 테스트용 115200bps
+    // 1. Hardware & Communication Link Setup
+    // Zynq-STM32: UART PS1, 230400 baud
+    UartLink stm32_link("/dev/ttyPS1", 230400);
+    // Zynq-GCS/Radio: UART S2, 460800 baud
+    UartLink gcs_link("/dev/ttyS2", 460800);
 
-    // TX 큐 정의 (TorpedoTelemetry 전송 테스트)
-    using TorpedoPacket = GenericPacket<TorpedoTelemetryPayload, uint16_t>;
-    ThreadSafeQueue<TorpedoPacket> txQueue;
+    // 2. Protocol Parser & TX Queue Preparation
+    TorpedoParser gcs_parser;
+    STMControlParser stm32_parser;
 
-    // 2. NetworkManager 조립
-    NetworkManager<TorpedoParser, UartLink, TorpedoPacket> manager(uart, parser, txQueue);
+    ThreadSafeQueue<TorpedoPacket> gcs_tx_queue;
+    ThreadSafeQueue<STMPacket> stm32_tx_queue;
 
-    // 3. 테스트 핸들러 등록 (MsgId 0x10 가정)
-    LoopbackTestHandler testHandler;
-    parser.registerHandler(0x10, &testHandler);
+    // 3. Logic Component Assembly
+    ManualSource manual_source;
+    AutoSource auto_source;
+    ModeMux mode_mux(manual_source.getMailbox(), auto_source.getMailbox());
 
-    // 4. 시스템 시작
-    if (manager.start()) {
-        std::cout << "[INFO] NetworkManager Started" << std::endl;
-    } else {
-        std::cerr << "[ERROR] Failed to start NetworkManager" << std::endl;
+    // Hardware Actuators (Zynq Local PWM)
+    // Mapping each servo to its own PWM chip as seen in Petalinux sysfs
+    // Rudder on pwmchip0 (ch0), Elevator on pwmchip1 (ch0)
+    LinuxPwmChannel rudder_pwm(0, 0);
+    LinuxPwmChannel elevator_pwm(1, 0);
+
+    // Servo Config: 20ms (50Hz), 1-2ms pulse, 60deg range, 120deg/s max speed
+    ServoConfig servo_cfg = {20000000, 1000000, 2000000, 60.0f, 120.0f};
+    ServoMotor rudder_servo(rudder_pwm, servo_cfg);
+    ServoMotor elevator_servo(elevator_pwm, servo_cfg);
+
+    ActuatorManager actuator_manager(rudder_servo, elevator_servo);
+
+    // 4. Communication Manager Setup
+    NetworkManager<TorpedoParser, UartLink, TorpedoPacket> gcs_manager(gcs_link, gcs_parser, gcs_tx_queue);
+    NetworkManager<STMControlParser, UartLink, STMPacket> stm32_manager(stm32_link, stm32_parser, stm32_tx_queue);
+
+    // 5. Torpedo Control System (TCS) Creation
+    TorpedoControlSystem tcs(mode_mux, actuator_manager, manual_source, auto_source, gcs_manager, stm32_manager);
+    g_tcs = &tcs;
+
+    // 6. Callback Registration
+    GcsControlHandler gcs_handler(manual_source);
+    gcs_parser.registerHandler(PACKET_FUNC_CHASSIS_CTRL, &gcs_handler);
+
+    Stm32FeedbackHandler stm32_handler(tcs);
+    stm32_parser.registerHandler(PACKET_FUNC_CHASSIS_FEEDBACK, &stm32_handler);
+
+    // 7. Signal Handling
+    std::signal(SIGINT, signalHandler);
+    std::signal(SIGTERM, signalHandler);
+
+    // 8. System Initialization & Startup
+    std::cout << "[Main] Initializing system components..." << std::endl;
+    if (!tcs.init()) {
+        std::cerr << "[Main] CRITICAL: System initialization failed!" << std::endl;
         return -1;
     }
 
-    // 5. 테스트 루프: 1초마다 데이터 송신
-    int test_count = 0;
-    while (test_count < 10) {
-        // 송신 데이터 생성
-        TorpedoPacket packet;
-        packet.msg_id = 0x10;
-        packet.payload.speed = 1.23f * (test_count + 1);
-        packet.payload.heading = 45.0f;
-        packet.payload.acc_x = 0.1f;
-        packet.payload.acc_y = 0.2f;
-        packet.payload.pos_x = 100 + test_count;
-        packet.payload.pos_y = 200 + test_count;
-
-        std::cout << "\n[TX] Sending Packet #" << test_count + 1 << "..." << std::endl;
-        if (manager.send(packet)) {
-            std::cout << " - Packet pushed to TX Queue" << std::endl;
-        } else {
-            std::cerr << " - Failed to push to TX Queue" << std::endl;
-        }
-
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        test_count++;
+    std::cout << "[Main] Starting control loops and communication..." << std::endl;
+    if (!tcs.start()) {
+        std::cerr << "[Main] CRITICAL: System startup failed!" << std::endl;
+        return -1;
     }
 
-    std::cout << "\nTest Complete. Stopping..." << std::endl;
-    manager.stop();
+    std::cout << "[Main] System is RUNNING. Press Ctrl+C to stop." << std::endl;
+
+    // 9. Main Thread Wait Loop
+    while (tcs.isRunning()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    std::cout << "[Main] Exiting." << std::endl;
     return 0;
 }

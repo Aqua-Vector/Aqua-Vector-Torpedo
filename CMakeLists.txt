@@ -68,9 +68,11 @@ set(CORE_SOURCES
     src/utils/CrcCalculator.cpp
 
     # -- 제어 파트 --
+    src/core/TorpedoControlSystem.cpp
     src/control/ModeMux.cpp
     src/control/ManualSource.cpp
     src/control/AutoSource.cpp
+    src/control/ControlDataValidator.cpp
     src/actuator/ActuatorManager.cpp
     src/actuator/ServoMotor.cpp
     src/hal/LinuxPwmChannel.cpp
@@ -78,21 +80,28 @@ set(CORE_SOURCES
 
 add_library(torpedo_core STATIC ${CORE_SOURCES})
 
-# Include 디렉토리 설정 
+# Include 디렉토리 설정 (모든 하위 디렉토리를 포함하여 경로 없이 include 가능하게 함)
 target_include_directories(torpedo_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/hal
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/protocol
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/control
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/actuator
     ${CMAKE_CURRENT_SOURCE_DIR}/include/communication
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/protocol
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/common
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/control
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/actuator
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/hal
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/sensor
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/hal
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/domain
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/domain/estimator
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/comm
 )
 
-# 라이브러리 링크 (Eigen, Pthread)
-target_link_libraries(torpedo_core PUBLIC Threads::Threads)
+# 라이브러리 링크 (Eigen, Pthread, Atomic)
+target_link_libraries(torpedo_core PUBLIC Threads::Threads atomic)
 
 if(TARGET Eigen3::Eigen)
     target_link_libraries(torpedo_core PUBLIC Eigen3::Eigen)
@@ -103,7 +112,6 @@ endif()
 # ─── 4. 메인 실행 파일 ───
 add_executable(${PROJECT_NAME} 
     src/main.cpp
-    # src/app/main_loop.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE torpedo_core)
@@ -122,7 +130,8 @@ add_torpedo_test(test_iimu_compile)
 add_torpedo_test(test_imu_downsampler)
 add_torpedo_test(test_eskf_state)
 add_torpedo_test(test_actuator)
-# add_torpedo_test(test_mux)
+add_torpedo_test(test_mux)
+add_torpedo_test(test_tcs)
 
 # ─── 6. 빌드 정보 출력 ───
 message(STATUS "")
@@ -130,9 +139,6 @@ message(STATUS "===== Aqua-Vector-Torpedo 빌드 설정 =====")
 message(STATUS "  버전:      ${PROJECT_VERSION}")
 message(STATUS "  빌드 타입: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  컴파일러:  ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
-message(STATUS "  C++ 표준:  ${CMAKE_CXX_STANDARD}")
-message(STATUS "==========================================")
-message(STATUS "")
 message(STATUS "  C++ 표준:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "==========================================")
 message(STATUS "")
