@@ -27,6 +27,9 @@ private:
 		while (is_running_.load(std::memory_order_acquire)) {
 			size_t bytes_read = link_.receive(chunk, sizeof(chunk));
 			if (bytes_read > 0) {
+				// We don't have an easy way to check debug_mode_ here without changing interface,
+				// but for hardware test we'll just push it. 
+				// GenericParser will handle the actual printing if debug is on.
 				for (size_t i = 0; i < bytes_read; ++i) {
 					rx_fifo_.push(chunk[i]);
 				}

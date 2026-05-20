@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_compile_options(-Wall -Wextra -Wpedantic)
+add_compile_options(-Wall -Wextra -Wpedantic -Wno-poison-system-directories)
 
 # 기본 빌드 타입 = Release
 if(NOT CMAKE_BUILD_TYPE)
@@ -83,12 +83,11 @@ set(CORE_SOURCES
     src/actuator/ServoMotor.cpp
     src/hal/LinuxPwmChannel.cpp
 
-    # -- 유도/추정 (기본) --
+    # -- 유도/추정 --
     src/guidance/GuidanceManager.cpp
     src/guidance/GuidancePhaseManager.cpp
     src/guidance/PNGuidanceController.cpp
     src/guidance/TargetStateEstimator.cpp
-    src/guidance/EbImuUart.cpp
 )
 
 add_library(torpedo_core STATIC ${CORE_SOURCES})
@@ -154,6 +153,7 @@ add_torpedo_test(test_eskf_state)
 add_torpedo_test(test_actuator)
 add_torpedo_test(test_mux)
 add_torpedo_test(test_tcs)
+add_torpedo_test(test_control_station_protocol)
 
 # Hardware & Manual Tests
 add_executable(hw_test_uplink tests/hw_test_uplink.cpp)
@@ -167,6 +167,15 @@ target_link_libraries(hw_test_stm32 PRIVATE torpedo_core)
 
 add_executable(test_stm_feedback tests/test_stm_feedback.cpp)
 target_link_libraries(test_stm_feedback PRIVATE torpedo_core)
+
+add_executable(hw_test_control_station tests/hw_test_control_station.cpp)
+target_link_libraries(hw_test_control_station PRIVATE torpedo_core)
+
+add_executable(test_miniimu_uart_class tests/test_miniimu_uart_class.cpp)
+target_link_libraries(test_miniimu_uart_class PRIVATE torpedo_core)
+
+add_executable(integration_hil_test tests/integration_hil_test.cpp)
+target_link_libraries(integration_hil_test PRIVATE torpedo_core)
 
 # ─── 7. 빌드 정보 출력 ───
 message(STATUS "")

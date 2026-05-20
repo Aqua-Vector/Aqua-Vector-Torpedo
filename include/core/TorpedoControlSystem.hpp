@@ -4,6 +4,7 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <optional>
 
 #include "ModeMux.hpp"
 #include "ActuatorManager.hpp"
@@ -16,6 +17,13 @@
 #include "GenericPacket.hpp"
 #include "Payloads.hpp"
 #include "ControlDataValidator.hpp"
+#include "utils/Mailbox.hpp"
+
+// 유도 및 추정 엔진 헤더 추가
+#include "guidance/GuidanceManager.hpp"
+#include "torpedo/domain/estimator/eskf_estimator.hpp"
+#include "torpedo/domain/estimator/rps_tracker.hpp"
+#include "torpedo/sensor/iimu.hpp"
 
 /**
  * @brief 패킷 타입 별칭 정의
@@ -36,12 +44,27 @@ private:
 	ManualSource& manual_source_;
 	AutoSource& auto_source_;
 
+	// 센서 및 유도/추정 엔진
+	torpedo::IImu& imu_;
+	guidance::GuidanceManager guidance_manager_;
+	torpedo::domain::EskfEstimator& eskf_estimator_;
+	torpedo::domain::RpsPositionTracker rps_tracker_;
+	torpedo::domain::BiasEstimate bias_estimate_;
+
 	// 통신 매니저 참조
 	NetworkManager<TorpedoParser, UartLink, TorpedoPacket>& gcs_manager_;
 	NetworkManager<STMControlParser, UartLink, STMPacket>& stm32_manager_;
 
+	// 통제소 전용 Uplink 포트
+	UartLink uplink_uart_;
+
 	// 데이터 저장소
+	Mailbox<ControlStationPayload> gcs_data_mb_;
 	Mailbox<FeedbackPayload> stm32_feedback_mb_;
+
+	// 물리 상수
+	const float WHEEL_RADIUS = 0.035f; // 35mm
+	const float RPS_TO_MPS = 2.0f * 3.14159265f * WHEEL_RADIUS;
 
 	// 스레드 및 상태 관리
 	std::atomic<bool> is_running_;
@@ -59,6 +82,8 @@ public:
 			ActuatorManager& actuator_manager,
 			ManualSource& manual_source,
 			AutoSource& auto_source,
+			torpedo::IImu& imu,
+			torpedo::domain::EskfEstimator& eskf,
 			NetworkManager<TorpedoParser, UartLink, TorpedoPacket>& gcs_manager,
 			NetworkManager<STMControlParser, UartLink, STMPacket>& stm32_manager
 			);
@@ -90,9 +115,14 @@ public:
 	bool isRunning() const { return is_running_.load(); }
 
 	/**
-	 * @brief STM32로부터 피드백 수신 콜백 (Public으로 변경하여 외부 핸들러에서 호출 가능)
+	 * @brief STM32로부터 피드백 수신 콜백
 	 */
 	void onStm32FeedbackReceived(const FeedbackPayload& payload, uint64_t timestamp_ms);
+
+	/**
+	 * @brief GCS로부터 데이터 수신 콜백
+	 */
+	void onGcsDataReceived(const ControlStationPayload& payload, uint64_t timestamp_ms);
 
 private:
 	/**
@@ -101,9 +131,14 @@ private:
 	void mainLoopTask();
 
 	/**
-	 * @brief 단일 제어 사이클 실행 (Mux 판단 -> 데이터 획득 -> STM32/Actuator 명령)
+	 * @brief 단일 제어 사이클 실행
 	 */
 	void processControlCycle(uint64_t current_time_ms);
+
+	/**
+	 * @brief 통제소로 좌표 정보 직접 송신 (10Hz)
+	 */
+	void sendUplinkTelemetry(uint64_t current_time_ms);
 };
 
 #endif /* TORPEDO_CONTROL_SYSTEM_HPP_*/

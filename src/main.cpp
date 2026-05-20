@@ -18,6 +18,9 @@
 #include "Payloads.hpp"
 #include "Marshaller.hpp"
 
+#include "torpedo/sensor/MiniImuUart.hpp"
+#include "torpedo/domain/estimator/eskf_estimator.hpp"
+
 // Global pointer for signal handling to allow graceful shutdown
 static TorpedoControlSystem* g_tcs = nullptr;
 
@@ -97,6 +100,12 @@ int main() {
     AutoSource auto_source;
     ModeMux mode_mux(manual_source.getMailbox(), auto_source.getMailbox());
 
+    // Sensors & Estimators
+    torpedo::sensor::MiniImuUart imu("/dev/ttyS3", 115200);
+    torpedo::domain::EskfEstimator eskf;
+    torpedo::domain::EskfInitParams eskf_params;
+    eskf.init(eskf_params, 0.01f);
+
     // Hardware Actuators (Zynq Local PWM)
     // Mapping each servo to its own PWM chip as seen in Petalinux sysfs
     // Rudder on pwmchip0 (ch0), Elevator on pwmchip1 (ch0)
@@ -115,7 +124,7 @@ int main() {
     NetworkManager<STMControlParser, UartLink, STMPacket> stm32_manager(stm32_link, stm32_parser, stm32_tx_queue);
 
     // 5. Torpedo Control System (TCS) Creation
-    TorpedoControlSystem tcs(mode_mux, actuator_manager, manual_source, auto_source, gcs_manager, stm32_manager);
+    TorpedoControlSystem tcs(mode_mux, actuator_manager, manual_source, auto_source, imu, eskf, gcs_manager, stm32_manager);
     g_tcs = &tcs;
 
     // 6. Callback Registration

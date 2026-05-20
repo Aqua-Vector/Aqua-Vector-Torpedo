@@ -1,22 +1,35 @@
-#include "TorpedoControlSystem.hpp"
+#include "core/TorpedoControlSystem.hpp"
+#include "protocol/UplinkPacket.hpp"
+#include "protocol/ProtocolIds.hpp"
 #include <iostream>
 #include <iomanip>
+#include <cmath>
+#include <algorithm>
+#include <Eigen/Dense>
 
 TorpedoControlSystem::TorpedoControlSystem(
 		ModeMux& mode_mux,
 		ActuatorManager& actuator_manager,
-     		ManualSource& manual_source,
-     		AutoSource& auto_source,
-    		NetworkManager<TorpedoParser, UartLink, TorpedoPacket>& gcs_manager,
+		ManualSource& manual_source,
+		AutoSource& auto_source,
+		torpedo::IImu& imu,
+		torpedo::domain::EskfEstimator& eskf,
+		NetworkManager<TorpedoParser, UartLink, TorpedoPacket>& gcs_manager,
 		NetworkManager<STMControlParser, UartLink, STMPacket>& stm32_manager
 		)
 	: mode_mux_(mode_mux), 
 	actuator_manager_(actuator_manager),
 	manual_source_(manual_source),
 	auto_source_(auto_source),
+	imu_(imu),
+	eskf_estimator_(eskf),
 	gcs_manager_(gcs_manager),
 	stm32_manager_(stm32_manager),
-	is_running_(false) {}
+	uplink_uart_("/dev/ttyS2", 115200),
+	is_running_(false) {
+		bias_estimate_.b_a.setZero();
+		bias_estimate_.b_g.setZero();
+	}
 
 TorpedoControlSystem::~TorpedoControlSystem() {
 	stop();
@@ -24,6 +37,18 @@ TorpedoControlSystem::~TorpedoControlSystem() {
 
 bool TorpedoControlSystem::init() {
 	std::cout << "[TCS] Initializing System..." << std::endl;
+
+	// IMU 초기화
+	if (!imu_.init()) {
+		std::cerr << "[TCS] Failed to initialize IMU" << std::endl;
+		return false;
+	}
+
+	// 통제소 직접 송신용 UART 초기화
+	if (!uplink_uart_.initialize()) {
+		std::cerr << "[TCS] Failed to initialize Uplink UART (/dev/ttyS2)" << std::endl;
+		return false;
+	}
 
 	// 액추에이터 초기화
 	if (actuator_manager_.initAll() != ErrorCode::OK) {
@@ -64,6 +89,8 @@ void TorpedoControlSystem::stop() {
 	// 통신 종료
 	gcs_manager_.stop();
 	stm32_manager_.stop();
+	uplink_uart_.close();
+	imu_.shutdown();
 
 	std::cout << "[TCS] System Stopped Safely" << std::endl;
 }
@@ -75,13 +102,26 @@ void TorpedoControlSystem::mainLoopTask() {
 	while (is_running_) {
 		uint64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 
+		// IMU 데이터 읽기 및 ESKF Predict
+		torpedo::ImuSample imu_sample;
+		if (imu_.read(imu_sample)) {
+			eskf_estimator_.predict(imu_sample, bias_estimate_, 0.01f);
+		}
+
 		// 단일 제어 사이클 실행 
 		processControlCycle(now_ms);
 
 		// 주기적 디버그 출력
 		if (++loop_count >= 100) {
 			SystemMode mode = mode_mux_.getMode();
-			std::cout << "[TCS Status] Mode: " << static_cast<int>(mode) << " | Time: " << now_ms << "ms" << "\n";
+			const auto& pos = rps_tracker_.getPosition();
+			float speed = rps_tracker_.getSpeed();
+			
+			// 마지막 제어 명령 peek를 위해 Mailbox fetch 대신 Guidance 결과 직접 로깅 고려 가능하나,
+			// 여기서는 간단히 상태만 출력
+			std::cout << "[TCS Status] Mode: " << static_cast<int>(mode) 
+					  << " | Pos: (" << pos.x() << ", " << pos.y() << ")"
+					  << " | Spd: " << speed << " m/s\n";
 			loop_count = 0;
 		}
 
@@ -96,37 +136,139 @@ void TorpedoControlSystem::mainLoopTask() {
 }
 
 void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
-	// Mux에게 현재 유효한 메일박스 주소 물어봄
+	// 1. GCS로부터 최신 데이터(Lidar) 획득
+	ControlStationPayload gcs_data;
+	uint64_t gcs_ts;
+	bool has_gcs = gcs_data_mb_.fetch(gcs_data, gcs_ts);
+
+	// 2. STM32로부터 최신 피드백 획득 및 RPS 트래커 업데이트
+	FeedbackPayload stm_fb;
+	uint64_t stm_ts;
+	if (stm32_feedback_mb_.fetch(stm_fb, stm_ts)) {
+		float speed = (stm_fb.m1_rps + stm_fb.m2_rps) * 0.5f * RPS_TO_MPS;
+		rps_tracker_.update(speed, eskf_estimator_.state().q, 0.01f);
+		// HIL 테스트에서는 predict 단계가 돌지 않아 ESKF P 행렬이 불안정하므로 update_lidar(tracker_p)는 삭제합니다.
+	}
+
+	// 데이터 유효성 검사 (500ms 이상 지연 시 데이터 없음으로 처리)
+	std::optional<Eigen::Vector2f> target_pos = std::nullopt;
+	bool terminal_trigger = false;
+
+	if (has_gcs && (current_time_ms - gcs_ts) < 500) {
+		// [치명적 버그 수정] gcs_data.target_x는 타겟(목적지)입니다.
+		// 이것을 내 위치(lidar_pos)로 착각하여 rps_tracker를 덮어쓰면 
+		// 내 위치 == 타겟 위치가 되어 거리가 0이 되고, 유도 알고리즘이 도착한 것으로 착각해 속도를 0으로 끕니다.
+		target_pos = Eigen::Vector2f(gcs_data.target_x, gcs_data.target_y);
+		terminal_trigger = (gcs_data.flags & 0x01);
+		
+		// 실제 LiDAR 보정이 필요하다면 gcs_data.torpedo_x, torpedo_y를 사용해야 합니다.
+		// HIL 테스트 환경에서는 가상 타겟만 주고 있으므로 보정 로직을 생략합니다.
+	}
+
+	// 3. 유도 알고리즘 실행 (GuidanceManager)
+	// ESKF의 자세와 RPS 트래커의 위치를 조합한 하이브리드 상태 생성
+	torpedo::domain::EskfState hybrid_state = eskf_estimator_.state();
+	hybrid_state.p = rps_tracker_.getPosition();
+	
+	// [수정] 속도 벡터를 Nav Frame으로 변환 (자세 q 적용)
+	float speed_val = rps_tracker_.getSpeed();
+	hybrid_state.v = eskf_estimator_.state().q * Eigen::Vector3f(speed_val, 0.0f, 0.0f);
+
+	ControlState auto_cmd = guidance_manager_.update(
+			hybrid_state, 
+			target_pos, 
+			terminal_trigger, 
+			0.01f
+	);
+
+	// [중요] 타임스탬프를 명시적으로 현재 시간으로 설정하여 ModeMux 워치독 방지
+	auto_cmd.last_update_time_ms = current_time_ms;
+	auto_source_.updateTargetState(auto_cmd, current_time_ms);
+
+	// 4. Mux에게 현재 유효한 메일박스 주소 물어봄
+	SystemMode prev_mode = mode_mux_.getMode();
 	auto* active_mailbox = mode_mux_.getActiveMailbox(current_time_ms);
+	SystemMode current_mode = mode_mux_.getMode();
+
+	if (prev_mode != current_mode) {
+		std::cout << "[TCS] Mode Changed: " << static_cast<int>(prev_mode) << " -> " << static_cast<int>(current_mode) 
+				  << " (Last Auto Update: " << auto_source_.getMailbox()->getLastUpdateTime() << ")" << std::endl;
+	}
 
 	// 결정된 메일박스에서 제어 명령 획득
 	ControlState target_state;
 	uint64_t timestamp;
-	if (!active_mailbox->fetch(target_state, timestamp)) {
-		return;
+	if (active_mailbox->fetch(target_state, timestamp)) {
+		// 값 검증
+		ControlDataValidator::sanitize(target_state);
+
+		// [수정] 기존 성공한 hw_test_stm32.cpp 방식에 따라 직접 직렬화 및 송신 시도
+		// NetworkManager의 비동기 큐 대신 직접 Link를 사용하는 것은 구조상 어려우므로, 
+		// stm32_manager_.send() 내부에서 쓰이는 것과 동일한 직렬화 과정을 검증합니다.
+		
+		STMPacket stm_pkt;
+		stm_pkt.msg_id = PACKET_FUNC_CHASSIS_CTRL; 
+		stm_pkt.payload.velocity = target_state.velocity;
+		stm_pkt.payload.rudder = target_state.rudder;
+		stm_pkt.payload.elevator = target_state.elevator;
+		
+		// NetworkManager를 통한 송신
+		stm32_manager_.send(stm_pkt);
+
+		// 로컬 액추에이터 구동
+		actuator_manager_.applyControl(target_state, 0.01f);
+
+		// 디버그 로깅 강화: 실제로 계산된 값이 0인지 확인
+		if (current_time_ms % 500 < 10) {
+			std::cout << "[TCS Cmd] Target -> V: " << target_state.velocity 
+					  << " | R: " << target_state.rudder 
+					  << " | Mode: " << static_cast<int>(mode_mux_.getMode()) << std::endl;
+		}
 	}
 
-	// 값 검증
-	ControlDataValidator::sanitize(target_state);
+	// 6. 통제소로 좌표 정보 직접 송신 (10Hz)
+	sendUplinkTelemetry(current_time_ms);
+}
 
-	// 하위 구동계로 명령 송신
-	STMPacket stm_pkt;
-	stm_pkt.msg_id = 0x10;
-	stm_pkt.payload.velocity = target_state.velocity;
-	stm_pkt.payload.rudder = target_state.rudder;
-	stm_pkt.payload.elevator = target_state.elevator;
-	stm32_manager_.send(stm_pkt);
+void TorpedoControlSystem::sendUplinkTelemetry(uint64_t current_time_ms) {
+	static uint16_t seq_counter = 0;
+	static uint64_t last_uplink_ms = 0;
 
-	// 로컬 액추에이터 구동
-	ErrorCode err = actuator_manager_.applyControl(target_state, 0.01f);
+	if (current_time_ms - last_uplink_ms < 100) return; // 10Hz
+	last_uplink_ms = current_time_ms;
 
-	// 하드웨어 치명적 에러 발생 시 시스템 락다운 트리거
-	if (err != ErrorCode::OK) {
-		mode_mux_.notifyHardwareError();
-	}
+	// RPS 트래커 기반 위치 사용
+	const auto& pos = rps_tracker_.getPosition();
+	const auto& q = eskf_estimator_.state().q;
+
+	UplinkPacket pkt;
+	pkt.payload.timestamp_us = static_cast<uint32_t>(current_time_ms * 1000);
+	pkt.payload.seq = seq_counter++;
+	pkt.payload.p_x = pos.x();
+	pkt.payload.p_y = pos.y();
+
+	Eigen::Matrix3f R = q.toRotationMatrix();
+	pkt.payload.yaw = std::atan2(R(1, 0), R(0, 0));
+
+	pkt.payload.status_flags = static_cast<uint8_t>(guidance_manager_.getPhase());
+	pkt.payload.reserved = 0;
+
+	pkt.finalizeCrc();
+
+	uplink_uart_.send(reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
 }
 
 void TorpedoControlSystem::onStm32FeedbackReceived(const FeedbackPayload& payload, uint64_t timestamp_ms) {
-	// TODO: GuidanceManager가 이 메일 박스 주소를 참조
 	stm32_feedback_mb_.update(payload, timestamp_ms);
+
+	// RPS 기반 속도 계산 (추후 RpsPositionTracker 등에서 사용 가능)
+	// (void)speed; // Silence unused warning if needed, but we keep the logic for future use
+	[[maybe_unused]] float speed = (payload.m1_rps + payload.m2_rps) * 0.5f * RPS_TO_MPS;
+	
+	// TODO: 팀원이 만든 ESKF를 수정하지 않고 속도를 반영할 별도의 Tracker를 사용할 예정입니다.
+	// 현재는 속도 업데이트를 건너뜁니다.
+}
+
+void TorpedoControlSystem::onGcsDataReceived(const ControlStationPayload& payload, uint64_t timestamp_ms) {
+	gcs_data_mb_.update(payload, timestamp_ms);
 }

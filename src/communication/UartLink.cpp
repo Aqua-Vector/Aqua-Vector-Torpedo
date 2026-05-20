@@ -37,9 +37,9 @@ bool UartLink::initialize() {
 	// Raw input (non-canonical)
 	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
 
-	// Low latency: Return as soon as 1 byte is available
-	options.c_cc[VMIN] = 1;
-	options.c_cc[VTIME] = 0;
+	// Low latency: Return as soon as 1 byte is available, or after 100ms
+	options.c_cc[VMIN] = 0;
+	options.c_cc[VTIME] = 1; // 100ms
 
 	tcflush(fd_, TCIOFLUSH);
 	if (tcsetattr(fd_, TCSANOW, &options) != 0) return false;
@@ -82,6 +82,8 @@ int UartLink::get_baud_constant(int baudrate) {
 		case 57600:  return B57600;
 		case 115200: return B115200;
 		case 230400: return B230400;
+		case 460800: return B460800;
+		case 921600: return B921600;
 		default:     return B115200;
 	}
 }
