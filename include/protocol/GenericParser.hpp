@@ -3,6 +3,8 @@
 
 #include <array>
 #include <cstring>
+#include <iostream>
+#include <iomanip>
 #include "CommInterfaces.hpp"
 #include "ControlTypes.hpp"
 #include "GenericPacket.hpp"
@@ -29,10 +31,12 @@ private:
 	typename Policy::CrcType received_crc_;
 	size_t crc_byte_count_;
 	uint64_t last_rx_time_ms_;
+	bool debug_mode_ = false;
 
 public:
 	GenericParser() : state_(ParseState::WAIT_SYNC1), handlers_{}, index_(0), msg_id_(0), length_(0), received_crc_(0), crc_byte_count_(0), last_rx_time_ms_(0) {}
 	
+	void setDebug(bool enable) { debug_mode_ = enable; }
 	using ProtocolPolicy = Policy;
 
 	void registerHandler(uint8_t msgId, IMessageHandler* handler) {
@@ -72,25 +76,50 @@ size_t GenericParser<Policy>::serialize(const GenericPacket<T, typename Policy::
 
 template <typename Policy>
 void GenericParser<Policy>::parseByte(uint8_t byte, uint64_t timestamp_ms) {
+	if (debug_mode_) {
+		// Print a dot for activity, or hex if it looks interesting
+		if (state_ == ParseState::WAIT_SYNC1) {
+			if (byte == Policy::SYNC1) {
+				std::cout << "\n[Parser] Potential SYNC1 (0x" << std::hex << (int)byte << ") at " << std::dec << timestamp_ms << "ms" << std::endl;
+			} else {
+				// Print raw bytes in hex periodically or if they seem like they could be sync bytes
+				static int byte_count = 0;
+				std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " " << std::dec << std::flush;
+				if (++byte_count % 16 == 0) std::cout << std::endl;
+			}
+		}
+	}
+
 	if (state_ != ParseState::WAIT_SYNC1 && (timestamp_ms - last_rx_time_ms_) > 50) {
+		if (debug_mode_) std::cout << "[Parser] Timeout, resetting state" << std::endl;
 		resetState();
 	}
 	last_rx_time_ms_ = timestamp_ms;
 
 	switch (state_) {
 		case ParseState::WAIT_SYNC1:
-			if (byte == Policy::SYNC1) state_ = ParseState::WAIT_SYNC2;
+			if (byte == Policy::SYNC1) {
+				if (debug_mode_) std::cout << "[Parser] SYNC1 found: 0x" << std::hex << (int)byte << std::endl;
+				state_ = ParseState::WAIT_SYNC2;
+			}
 			break;
 
 		case ParseState::WAIT_SYNC2:
-			if (byte == Policy::SYNC2) state_ = ParseState::READ_MSG_ID;
+			if (byte == Policy::SYNC2) {
+				if (debug_mode_) std::cout << "[Parser] SYNC2 found: 0x" << std::hex << (int)byte << std::endl;
+				state_ = ParseState::READ_MSG_ID;
+			}
 			else if (byte == Policy::SYNC1) state_ = ParseState::WAIT_SYNC2;
-			else resetState();
+			else {
+				if (debug_mode_) std::cout << "[Parser] Expected SYNC2, got 0x" << std::hex << (int)byte << ", resetting" << std::endl;
+				resetState();
+			}
 			break;
 
 		case ParseState::READ_MSG_ID:
 			msg_id_ = byte;
 			buffer_[0] = byte;
+			if (debug_mode_) std::cout << "[Parser] MsgID: 0x" << std::hex << (int)byte << std::endl;
 			state_ = ParseState::READ_LENGTH;
 			break;
 
@@ -98,11 +127,13 @@ void GenericParser<Policy>::parseByte(uint8_t byte, uint64_t timestamp_ms) {
 			length_ = byte;
 			buffer_[1] = byte;
 			index_ = 0;
+			if (debug_mode_) std::cout << "[Parser] Length: " << std::dec << (int)byte << std::endl;
 			if (length_ > 0 && length_ <= Policy::MAX_PAYLOAD_SIZE) {
 				state_ = ParseState::READ_PAYLOAD;
 			} else if (length_ == 0) {
 				state_ = ParseState::READ_CRC;
 			} else {
+				if (debug_mode_) std::cout << "[Parser] Invalid length, resetting" << std::endl;
 				resetState();
 			}
 			break;
@@ -120,9 +151,16 @@ void GenericParser<Policy>::parseByte(uint8_t byte, uint64_t timestamp_ms) {
 
 			if (++crc_byte_count_ >= sizeof(typename Policy::CrcType)) {
 				// Verify CRC on [Function, Length, Payload...]
-				if (Policy::calculateCrc(buffer_, length_ + 2) == received_crc_) {
+				typename Policy::CrcType calculated = Policy::calculateCrc(buffer_, length_ + 2);
+				if (calculated == received_crc_) {
+					if (debug_mode_) std::cout << "[Parser] CRC OK, calling handler" << std::endl;
 					if (handlers_[msg_id_]) {
 						handlers_[msg_id_]->handle(buffer_ + 2, length_, timestamp_ms);
+					}
+				} else {
+					if (debug_mode_) {
+						std::cout << "[Parser] CRC mismatch! Received: 0x" << std::hex << received_crc_ 
+								  << ", Calculated: 0x" << calculated << std::endl;
 					}
 				}
 				resetState();
@@ -130,5 +168,6 @@ void GenericParser<Policy>::parseByte(uint8_t byte, uint64_t timestamp_ms) {
 			break;
 	}
 }
+
 
 #endif /* GENERIC_PARSER_HPP_ */

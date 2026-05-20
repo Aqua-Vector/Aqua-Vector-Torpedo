@@ -15,6 +15,7 @@ public:
 	static uint8_t CalculateXor(const uint8_t* buf, size_t len);
 	static uint8_t CalculateCrc8(const uint8_t* buf, size_t len);
 	static uint16_t CalculateCrc16(const uint8_t* buf, size_t len);
+	static uint16_t CalculateCrc16Ccitt(const uint8_t* buf, size_t len);
 };
 
 #endif /* CRC_CALCULATOR_HPP_ */

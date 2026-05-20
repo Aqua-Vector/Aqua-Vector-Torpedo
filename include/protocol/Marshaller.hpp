@@ -19,6 +19,10 @@ namespace Marshaller {
 	bool serialize(const FeedbackPayload& data, uint8_t* buffer, size_t size);
 	bool deserialize(const uint8_t* buffer, size_t size, FeedbackPayload& data);
 
+	// ControlStation 데이터 처리
+	bool serialize(const ControlStationPayload& data, uint8_t* buffer, size_t size);
+	bool deserialize(const uint8_t* buffer, size_t size, ControlStationPayload& data);
+
 }
 
 #endif /* MARSHALLER_HPP_ */

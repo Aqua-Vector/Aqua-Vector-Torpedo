@@ -80,4 +80,35 @@ namespace Marshaller {
 		return ok;
 	}
 
+	// ControlStationPayload
+	bool serialize(const ControlStationPayload& data, uint8_t* buffer, size_t size) {
+		BufferView view(buffer, size);
+		bool ok = true;
+
+		ok &= view.write<uint16_t>(data.seq);
+		ok &= view.writeFloat(data.target_x);
+		ok &= view.writeFloat(data.target_y);
+		ok &= view.writeFloat(data.torpedo_x);
+		ok &= view.writeFloat(data.torpedo_y);
+		ok &= view.write<int16_t>(data.steer);
+		ok &= view.write<uint8_t>(data.flags);
+
+		return ok;
+	}
+
+	bool deserialize(const uint8_t* buffer, size_t size, ControlStationPayload& data) {
+		BufferView view(const_cast<uint8_t*>(buffer), size);
+		bool ok = true;
+
+		ok &= view.read<uint16_t>(data.seq);
+		ok &= view.readFloat(data.target_x);
+		ok &= view.readFloat(data.target_y);
+		ok &= view.readFloat(data.torpedo_x);
+		ok &= view.readFloat(data.torpedo_y);
+		ok &= view.read<int16_t>(data.steer);
+		ok &= view.read<uint8_t>(data.flags);
+
+		return ok;
+	}
+
 }
