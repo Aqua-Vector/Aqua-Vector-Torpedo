@@ -88,6 +88,7 @@ set(CORE_SOURCES
     src/guidance/GuidancePhaseManager.cpp
     src/guidance/PNGuidanceController.cpp
     src/guidance/TargetStateEstimator.cpp
+    src/guidance/EbImuUart.cpp
 )
 
 add_library(torpedo_core STATIC ${CORE_SOURCES})
@@ -182,6 +183,12 @@ target_link_libraries(test_stationary_position PRIVATE torpedo_core)
 
 add_executable(test_dynamic_position_rps tests/test_dynamic_position_rps.cpp)
 target_link_libraries(test_dynamic_position_rps PRIVATE torpedo_core)
+
+add_executable(test_ebimu_heading tests/test_ebimu_heading.cpp)
+target_link_libraries(test_ebimu_heading PRIVATE torpedo_core)
+
+add_executable(test_ebimu_odometry tests/test_ebimu_odometry.cpp)
+target_link_libraries(test_ebimu_odometry PRIVATE torpedo_core)
 
 add_executable(integration_hil_test tests/integration_hil_test.cpp)
 target_link_libraries(integration_hil_test PRIVATE torpedo_core)
