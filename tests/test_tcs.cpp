@@ -32,16 +32,15 @@ public:
     MockUartLink() : UartLink("/dev/null", 115200) {}
     bool initialize() override { return true; }
     void close() override {}
-    size_t send(const uint8_t* data, size_t len) override {
+    ssize_t send(const uint8_t* data, size_t len) override {
         (void)data;
         send_count_++;
-        return len;
+        return static_cast<ssize_t>(len);
     }
-    size_t receive(uint8_t* buf, size_t max_len) override {
+    ssize_t receive(uint8_t* buf, size_t max_len) override {
         (void)buf; (void)max_len;
-        return 0; 
-    }
-    size_t send_count_ = 0;
+        return 0;
+    }    size_t send_count_ = 0;
 };
 
 int main() {

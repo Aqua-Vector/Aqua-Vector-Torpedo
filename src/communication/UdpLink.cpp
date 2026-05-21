@@ -41,15 +41,13 @@ bool UdpLink::isConnected() const {
     return sockfd_ != -1;
 }
 
-size_t UdpLink::send(const uint8_t* data, size_t length) {
-    if (sockfd_ == -1) return 0;
-    ssize_t sent = sendto(sockfd_, data, length, 0, 
-                          (struct sockaddr*)&remote_addr_, sizeof(remote_addr_));
-    return (sent > 0) ? static_cast<size_t>(sent) : 0;
+ssize_t UdpLink::send(const uint8_t* data, size_t length) {
+    if (sockfd_ == -1) return -1;
+    return sendto(sockfd_, data, length, 0, 
+                  (struct sockaddr*)&remote_addr_, sizeof(remote_addr_));
 }
 
-size_t UdpLink::receive(uint8_t* buffer, size_t max_length) {
-    if (sockfd_ == -1) return 0;
-    ssize_t received = recvfrom(sockfd_, buffer, max_length, 0, nullptr, nullptr);
-    return (received > 0) ? static_cast<size_t>(received) : 0;
+ssize_t UdpLink::receive(uint8_t* buffer, size_t max_length) {
+    if (sockfd_ == -1) return -1;
+    return recvfrom(sockfd_, buffer, max_length, 0, nullptr, nullptr);
 }

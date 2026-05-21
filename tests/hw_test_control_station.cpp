@@ -5,6 +5,8 @@
 #include <cstring>
 #include <unistd.h>
 #include <thread>
+#include <fcntl.h>
+#include <termios.h>
 #include "communication/UartLink.hpp"
 #include "utils/CrcCalculator.hpp"
 
@@ -30,98 +32,138 @@ struct __attribute__((packed)) DownlinkPacket {
 	uint16_t crc16;          
 };
 
+/*
+speed_t get_baud_constant(int baudrate) {
+	switch (baudrate) {
+		case 9600:   return B9600;
+		case 19200:  return B19200;
+		case 38400:  return B38400;
+		case 57600:  return B57600;
+		case 115200: return B115200;
+		case 230400: return B230400;
+		case 460800: return B460800;
+		case 921600: return B921600;
+		default:     return B115200;
+	}
+}
+*/
+
 int main(int argc, char** argv) {
 	signal(SIGINT, signalHandler);
 
 	std::string port = "/dev/ttyS2";
-	int baud = 115200; 
+	int baud_val = 115200; 
 
 	if (argc > 1) port = argv[1];
-	if (argc > 2) baud = std::stoi(argv[2]);
+	if (argc > 2) baud_val = std::stoi(argv[2]);
 
-	std::cout << "Control Station Test (User Implementation Mode)" << std::endl;
-	std::cout << "Port: " << port << ", Baud: " << baud << std::endl;
+	std::cout << "Control Station Test (Using UartLink with Verified Config)" << std::endl;
+	std::cout << "Port: " << port << ", Baud: " << baud_val << std::endl;
 
-	UartLink link(port, baud);
-	if (!link.initialize()) {
-		std::cerr << "Failed to initialize UART" << std::endl;
+	// --- [Mode 1] Using UartLink (Active) ---
+	UartLink uart(port, baud_val);
+	if (!uart.initialize()) {
+		std::cerr << "Failed to initialize UartLink on " << port << std::endl;
 		return 1;
 	}
 
-	std::cout << "Waiting for packets... (AA 55)" << std::endl;
+	/*
+	// --- [Mode 2] Direct System Call (Commented fallback) ---
+	int fd = open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+	if (fd < 0) {
+		std::cerr << "Failed to open " << port << std::endl;
+		return 1;
+	}
+
+	struct termios tio;
+	memset(&tio, 0, sizeof(tio));
+	speed_t baud = get_baud_constant(baud_val);
+	cfsetispeed(&tio, baud);
+	cfsetospeed(&tio, baud);
+	
+	tio.c_cflag = CS8 | CLOCAL | CREAD;
+	tio.c_iflag = IGNPAR;
+	tio.c_cc[VMIN]  = 0;
+	tio.c_cc[VTIME] = 0;
+	
+	tcflush(fd, TCIFLUSH);
+	if (tcsetattr(fd, TCSANOW, &tio) < 0) {
+		std::cerr << "Failed to set termios attributes" << std::endl;
+		close(fd);
+		return 1;
+	}
+	*/
+
+	std::cout << "Waiting for data... (Every byte will be printed in HEX)" << std::endl;
+	std::cout << "----------------------------------------------------------------" << std::endl;
+
+	int state = 0; // 0: Sync1, 1: Sync2, 2: Payload + CRC
+	DownlinkPacket pkt;
+	uint8_t* pkt_ptr = (uint8_t*)&pkt;
+	size_t rx_idx = 0;
 
 	while (g_running) {
-		uint8_t head[2] = {0, 0};
+		uint8_t byte;
+		
+		// [Mode 1] Using UartLink
+		ssize_t n = uart.receive(&byte, 1);
+		
+		// [Mode 2] Direct System Call
+		// ssize_t n = read(fd, &byte, 1);
+		
+		if (n > 0) {
+			// Unconditionally print every byte in hex
+			std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " " << std::flush;
 
-		std::cout << "g_running\n";
-		// 1. 헤더 0xAA, 0x55 찾기
-		bool header_found = false;
-		while (g_running) {
-			if (link.receive(&head[0], 1) > 0) {
-				std::cout << "before read haed 1 : 0x" << std::hex << (int)head[0] << std::dec << "\n";
-				if (head[0] == 0xAA) {
-					std::cout << "after read head 1\n";
-					// 다음 바이트가 0x55인지 확인
-					int retry = 50; 
-					while (retry-- > 0 && g_running) {
-						std::cout << "before read head 2\n";
-						if (link.receive(&head[1], 1) > 0) {
-							if (head[1] == 0x55) {
-								header_found = true;
-								break;
-							} else if (head[1] == 0xAA) {
-								// AA가 연속으로 올 경우 다시 55 대기
-								retry = 50;
-							} else {
-								break;
-							}
-						}
-						usleep(100);
+			// Parsing State Machine
+			if (state == 0) {
+				if (byte == 0xAA) {
+					pkt_ptr[0] = byte;
+					state = 1;
+				}
+			} else if (state == 1) {
+				if (byte == 0x55) {
+					pkt_ptr[1] = byte;
+					state = 2;
+					rx_idx = 2;
+				} else if (byte == 0xAA) {
+					state = 1;
+				} else {
+					state = 0;
+				}
+			} else if (state == 2) {
+				pkt_ptr[rx_idx++] = byte;
+				if (rx_idx >= sizeof(DownlinkPacket)) {
+					// ALWAYS reset state and index when packet is complete
+					uint16_t calc_crc = CrcCalculator::CalculateCrc16Ccitt((uint8_t*)&pkt, sizeof(DownlinkPacket) - 2);
+					
+					std::cout << std::dec << "\n  └─ [Parsed] ";
+					if (calc_crc == pkt.crc16) {
+						std::cout << "[CRC OK] Seq: " << pkt.seq 
+							<< " | Tgt: (" << std::fixed << std::setprecision(2) << pkt.target_x << ", " << pkt.target_y << ")"
+							<< " | Torp: (" << pkt.torpedo_x << ", " << pkt.torpedo_y << ")"
+							<< " | Steer: " << pkt.steer
+							<< " | Flags: 0x" << std::hex << (int)pkt.flags << std::dec << std::endl;
+					} else {
+						std::cout << "[CRC ERR] Recv: 0x" << std::hex << pkt.crc16 
+							<< " | Calc: 0x" << calc_crc << std::dec << std::endl;
 					}
+					std::cout << "----------------------------------------------------------------" << std::endl;
+					
+					state = 0;
+					rx_idx = 0;
 				}
 			}
-			if (header_found) break;
-			usleep(100); // CPU 점유율 방지
-		}
-
-		if (!header_found) continue;
-
-		// 2. DownlinkPacket 구조체 크기(27바이트)만큼 읽기
-		// 헤더(2바이트)를 이미 읽었으므로 나머지 25바이트 읽기
-		DownlinkPacket pkt;
-		pkt.sync = 0xAA;
-		pkt.sync2 = 0x55;
-
-		uint8_t* p = (uint8_t*)&pkt + 2;
-		int target = sizeof(DownlinkPacket) - 2; 
-		int total_read = 0;
-
-		while (total_read < target && g_running) {
-			int n = link.receive(p + total_read, target - total_read);
-			if (n > 0) {
-				total_read += n;
-			} else {
-				usleep(100);
-			}
-		}
-
-		if (total_read == target) {
-			// 3. CRC 검증 (DownlinkPacket 구조체 크기 기준, Sync1~Flags 25바이트)
-			uint16_t calc_crc = CrcCalculator::CalculateCrc16Ccitt((uint8_t*)&pkt, sizeof(DownlinkPacket) - 2);
-
-			if (calc_crc == pkt.crc16) {
-				std::cout << "[RX OK] Seq: " << pkt.seq 
-					<< " | Tgt: (" << std::fixed << std::setprecision(2) << pkt.target_x << ", " << pkt.target_y << ")"
-					<< " | Torp: (" << pkt.torpedo_x << ", " << pkt.torpedo_y << ")"
-					<< " | Steer: " << pkt.steer
-					<< " | Flags: 0x" << std::hex << (int)pkt.flags << std::dec << std::endl;
-			} else {
-				std::cout << "[CRC ERR] Recv: 0x" << std::hex << pkt.crc16 
-					<< " | Calc: 0x" << calc_crc << std::dec << std::endl;
-			}
+		} else {
+			usleep(100);
 		}
 	}
 
-	link.close();
+	// [Mode 1]
+	uart.close();
+
+	// [Mode 2]
+	// close(fd);
+
 	return 0;
 }

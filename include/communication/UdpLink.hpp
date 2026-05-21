@@ -4,6 +4,7 @@
 #include "CommInterfaces.hpp"
 #include <string>
 #include <netinet/in.h>
+#include <sys/types.h>
 
 class UdpLink : public ICommLifeCycle, public ICommDataStream {
 private:
@@ -20,8 +21,8 @@ public:
     void close() override;
     bool isConnected() const override;
 
-    size_t send(const uint8_t* data, size_t length) override;
-    size_t receive(uint8_t* buffer, size_t max_length) override;
+    ssize_t send(const uint8_t* data, size_t length) override;
+    ssize_t receive(uint8_t* buffer, size_t max_length) override;
 };
 
 #endif /* UDP_LINK_HPP_ */

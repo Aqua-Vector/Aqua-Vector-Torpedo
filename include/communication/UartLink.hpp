@@ -3,6 +3,7 @@
 
 #include "CommInterfaces.hpp"
 #include <string>
+#include <sys/types.h>
 
 class UartLink : public ICommLifeCycle, public ICommDataStream {
 private:
@@ -22,8 +23,8 @@ public:
     bool isConnected() const override;
 
     // ICommDataStream 구현
-    size_t send(const uint8_t* data, size_t length) override;
-    size_t receive(uint8_t* buffer, size_t max_length) override;
+    ssize_t send(const uint8_t* data, size_t length) override;
+    ssize_t receive(uint8_t* buffer, size_t max_length) override;
 };
 
 #endif /* UART_LINK_HPP_ */

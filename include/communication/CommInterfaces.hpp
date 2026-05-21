@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <sys/types.h>
 
 // 통신 링크의 생명주기 관리 인터페이스
 class ICommLifeCycle {
@@ -17,8 +18,8 @@ public:
 class ICommDataStream {
 public:
     virtual ~ICommDataStream() = default;
-    virtual size_t send(const uint8_t* data, size_t length) = 0;
-    virtual size_t receive(uint8_t* buffer, size_t max_length) = 0;
+    virtual ssize_t send(const uint8_t* data, size_t length) = 0;
+    virtual ssize_t receive(uint8_t* buffer, size_t max_length) = 0;
 };
 
 // 특정 메시지 ID에 대한 처리 핸들러 인터페이스

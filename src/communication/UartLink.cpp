@@ -17,35 +17,30 @@ bool UartLink::initialize() {
 	if (fd_ == -1) return false;
 
 	struct termios options;
+	// Use memset to clear all flags, avoiding inheritance of OS defaults via tcgetattr
 	std::memset(&options, 0, sizeof(options));
-	if (tcgetattr(fd_, &options) != 0) return false;
 
 	int baud = get_baud_constant(baud_rate_);
 	cfsetispeed(&options, baud);
 	cfsetospeed(&options, baud);
 
-	// 8N1, Raw Mode, No flow control
-	options.c_cflag |= (CLOCAL | CREAD | CS8);
+	// Verified "Clean" configuration for Raw Binary Mode
 	options.c_cflag &= ~(PARENB | CSTOPB | CSIZE | CRTSCTS);
-	
-	// Disable software flow control and translations
+	options.c_cflag |= (CS8 | CLOCAL | CREAD); 
+	options.c_iflag = IGNPAR;
 	options.c_iflag &= ~(IXON | IXOFF | IXANY | IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
-	
-	// Raw output
 	options.c_oflag &= ~OPOST;
-	
-	// Raw input (non-canonical)
 	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+	
+	options.c_cc[VMIN]  = 0;
+	options.c_cc[VTIME] = 0;
 
-	// Low latency: Return as soon as 1 byte is available, or after 100ms
-	options.c_cc[VMIN] = 0;
-	options.c_cc[VTIME] = 1; // 100ms
-
-	tcflush(fd_, TCIOFLUSH);
-	if (tcsetattr(fd_, TCSANOW, &options) != 0) return false;
-
-	// Keep O_NONBLOCK as requested to match sender configuration
-	// (VMIN/VTIME will be ignored in non-blocking mode)
+	tcflush(fd_, TCIFLUSH);
+	if (tcsetattr(fd_, TCSANOW, &options) != 0) {
+		::close(fd_);
+		fd_ = -1;
+		return false;
+	}
 
 	return true;
 }
@@ -61,14 +56,13 @@ bool UartLink::isConnected() const {
 	return fd_ != -1;
 }
 
-size_t UartLink::send(const uint8_t* data, size_t length) {
-	if (fd_ == -1) return 0;
-	ssize_t written = write(fd_, data, length);
-	return (written > 0) ? static_cast<size_t>(written) : 0;
+ssize_t UartLink::send(const uint8_t* data, size_t length) {
+	if (fd_ == -1) return -1;
+	return write(fd_, data, length);
 }
 
-size_t UartLink::receive(uint8_t* buffer, size_t max_length) {
-	if (fd_ == -1) return 0;
+ssize_t UartLink::receive(uint8_t* buffer, size_t max_length) {
+	if (fd_ == -1) return -1;
 	ssize_t bytes_read = read(fd_, buffer, max_length);
 	
 	if (bytes_read < 0) {
@@ -76,10 +70,10 @@ size_t UartLink::receive(uint8_t* buffer, size_t max_length) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
 			return 0;
 		}
-		return 0;
+		return -1;
 	}
 	
-	return static_cast<size_t>(bytes_read);
+	return bytes_read;
 }
 
 int UartLink::get_baud_constant(int baudrate) {
