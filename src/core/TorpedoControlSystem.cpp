@@ -192,7 +192,7 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 	FeedbackPayload stm_fb;
 	uint64_t stm_ts;
 	if (stm32_feedback_mb_.fetch(stm_fb, stm_ts)) {
-		float raw_speed = (stm_fb.m1_rps + stm_fb.m2_rps) * 0.5f * RPS_TO_MPS;
+		float raw_speed = (stm_fb.m1_rps - stm_fb.m2_rps) * 0.5f * RPS_TO_MPS;
 		float filtered_speed = speed_lpf_.update(raw_speed);
 		
 		// [수정] ESKF의 드리프트 되는 자세 대신, MiniIMU의 절대 Yaw를 사용하여 위치 적분

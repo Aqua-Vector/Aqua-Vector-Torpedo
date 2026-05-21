@@ -7,6 +7,7 @@
 
 #include "torpedo/sensor/MiniImuUart.hpp"
 #include "torpedo/domain/estimator/rps_tracker.hpp"
+#include "torpedo/domain/estimator/eskf_estimator.hpp"
 #include "torpedo/domain/estimator/bias_calibrator.hpp"
 #include "utils/LowPassFilter.hpp"
 #include "utils/Mailbox.hpp"
@@ -61,13 +62,43 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    // 2. 캘리브레이션 (테스트를 위해 일단 생략하거나 아주 짧게 설정)
-    std::cout << "Step 1: Skipping Static Calibration for immediate wheel test..." << std::endl;
-    torpedo::domain::BiasEstimate bias_estimate;
-    bias_estimate.b_a.setZero();
-    bias_estimate.b_g.setZero();
+    // 2. 캘리브레이션 수행 (5초)
+    std::cout << "Step 1: Starting Static Calibration (Keep it still for 5 seconds)..." << std::endl;
+    torpedo::domain::BiasCalibrator calibrator;
+    calibrator.start(5.0f, 100); // 5초, 100Hz
+
+    while (!calibrator.is_done()) {
+        torpedo::ImuSample s;
+        if (imu.read(s)) {
+            calibrator.add_sample(s);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        
+        static int last_sec = -1;
+        int current_sec = static_cast<int>(calibrator.progress() * 5.0f);
+        if (current_sec != last_sec) {
+            std::cout << "  Calibration Progress: " << current_sec + 1 << " / 5s" << std::endl;
+            last_sec = current_sec;
+        }
+    }
+
+    auto calib_result = calibrator.finalize();
+    torpedo::domain::BiasEstimate bias_estimate = calib_result.bias;
+    
+    std::cout << "  Calibration Done! " << (calib_result.success ? "[SUCCESS]" : "[FAILED]") << std::endl;
+    if (calib_result.success) {
+        std::cout << "  - Bias Accel: " << bias_estimate.b_a.transpose() << std::endl;
+        std::cout << "  - Bias Gyro: " << bias_estimate.b_g.transpose() << std::endl;
+    }
 
     // 3. 위치 추정 루프 준비
+    torpedo::domain::EskfEstimator eskf;
+    torpedo::domain::EskfInitParams eskf_params;
+    if (calib_result.success) {
+        eskf_params.q0 = calib_result.q0; // 캘리브레이션으로 찾은 초기 수평 자세 적용
+    }
+    eskf.init(eskf_params, 0.01f);
+
     torpedo::domain::RpsPositionTracker tracker;
     utils::LowPassFilter yaw_lpf(0.3f);
     utils::LowPassFilter speed_lpf(0.2f);
@@ -105,6 +136,10 @@ int main(int argc, char** argv) {
         // IMU 읽기 (비차단)
         torpedo::ImuSample imu_sample;
         if (imu.read(imu_sample)) {
+            // ESKF로 자세 업데이트 (가속도는 제외하고 자이로 기반 자세 추정)
+            imu_sample.ax = 0.0f; imu_sample.ay = 0.0f; imu_sample.az = 0.0f;
+            eskf.predict(imu_sample, bias_estimate, 0.01f);
+            
             current_yaw = yaw_lpf.updateAngle(imu_sample.yaw);
         }
 
@@ -120,8 +155,8 @@ int main(int argc, char** argv) {
             float raw_speed = (m1_rps - m2_rps) * 0.5f * RPS_TO_MPS;
             current_speed = speed_lpf.update(raw_speed);
             
-            Eigen::Quaternionf q = Eigen::Quaternionf(Eigen::AngleAxisf(current_yaw, Eigen::Vector3f::UnitZ()));
-            tracker.update(current_speed, q, 0.01f);
+            // ESKF가 계산한 정교한 쿼터니언(q)을 사용하여 위치 업데이트
+            tracker.update(current_speed, eskf.state().q, 0.01f);
         }
 
         if (now - last_log_time >= std::chrono::seconds(1)) {
