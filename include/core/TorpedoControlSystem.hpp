@@ -18,6 +18,7 @@
 #include "Payloads.hpp"
 #include "ControlDataValidator.hpp"
 #include "utils/Mailbox.hpp"
+#include "utils/LowPassFilter.hpp"
 
 // 유도 및 추정 엔진 헤더 추가
 #include "guidance/GuidanceManager.hpp"
@@ -50,6 +51,11 @@ private:
 	torpedo::domain::EskfEstimator& eskf_estimator_;
 	torpedo::domain::RpsPositionTracker rps_tracker_;
 	torpedo::domain::BiasEstimate bias_estimate_;
+	float latest_imu_yaw_ = 0.0f;
+
+	// LPF 필터 (속도 및 헤딩)
+	utils::LowPassFilter speed_lpf_{0.2f};
+	utils::LowPassFilter yaw_lpf_{0.3f};
 
 	// 통신 매니저 참조
 	NetworkManager<TorpedoParser, UartLink, TorpedoPacket>& gcs_manager_;

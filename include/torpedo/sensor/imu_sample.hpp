@@ -33,6 +33,7 @@ struct ImuSample {
     uint64_t t_us;
     float ax, ay, az;
     float gx, gy, gz;
+    float roll, pitch, yaw; // rad
     bool valid;
 };
 

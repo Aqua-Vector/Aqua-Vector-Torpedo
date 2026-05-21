@@ -15,6 +15,8 @@
 #include "UartLink.hpp"
 #include "ThreadSafeQueue.hpp"
 #include "IPwmChannel.hpp"
+#include "torpedo/sensor/MiniImuUart.hpp"
+#include "torpedo/domain/estimator/eskf_estimator.hpp"
 
 // Mock PWM for testing
 class MockPwm : public IPwmChannel {
@@ -69,8 +71,14 @@ int main() {
     AutoSource as;
     ModeMux mux(ms.getMailbox(), as.getMailbox());
 
+    // Sensors & Estimators for Test
+    torpedo::sensor::MiniImuUart imu("/dev/null", 115200);
+    torpedo::domain::EskfEstimator eskf;
+    torpedo::domain::EskfInitParams eskf_params;
+    eskf.init(eskf_params, 0.01f);
+
     // 2. Initialize TCS
-    TorpedoControlSystem tcs(mux, am, ms, as, gcs_nm, stm_nm);
+    TorpedoControlSystem tcs(mux, am, ms, as, imu, eskf, gcs_nm, stm_nm);
 
     if (!tcs.init()) {
         std::cerr << "TCS Init Failed" << std::endl;

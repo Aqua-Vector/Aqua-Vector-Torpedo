@@ -174,6 +174,15 @@ target_link_libraries(hw_test_control_station PRIVATE torpedo_core)
 add_executable(test_miniimu_uart_class tests/test_miniimu_uart_class.cpp)
 target_link_libraries(test_miniimu_uart_class PRIVATE torpedo_core)
 
+add_executable(test_imu_heading_log tests/test_imu_heading_log.cpp)
+target_link_libraries(test_imu_heading_log PRIVATE torpedo_core)
+
+add_executable(test_stationary_position tests/test_stationary_position.cpp)
+target_link_libraries(test_stationary_position PRIVATE torpedo_core)
+
+add_executable(test_dynamic_position_rps tests/test_dynamic_position_rps.cpp)
+target_link_libraries(test_dynamic_position_rps PRIVATE torpedo_core)
+
 add_executable(integration_hil_test tests/integration_hil_test.cpp)
 target_link_libraries(integration_hil_test PRIVATE torpedo_core)
 

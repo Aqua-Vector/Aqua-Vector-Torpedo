@@ -44,9 +44,8 @@ bool UartLink::initialize() {
 	tcflush(fd_, TCIOFLUSH);
 	if (tcsetattr(fd_, TCSANOW, &options) != 0) return false;
 
-	// After setting termios, clear O_NONBLOCK to allow VMIN/VTIME to work as intended
-	int flags = fcntl(fd_, F_GETFL, 0);
-	fcntl(fd_, F_SETFL, flags & ~O_NONBLOCK);
+	// Keep O_NONBLOCK as requested to match sender configuration
+	// (VMIN/VTIME will be ignored in non-blocking mode)
 
 	return true;
 }
@@ -71,7 +70,16 @@ size_t UartLink::send(const uint8_t* data, size_t length) {
 size_t UartLink::receive(uint8_t* buffer, size_t max_length) {
 	if (fd_ == -1) return 0;
 	ssize_t bytes_read = read(fd_, buffer, max_length);
-	return (bytes_read > 0) ? static_cast<size_t>(bytes_read) : 0;
+	
+	if (bytes_read < 0) {
+		// In non-blocking mode, return 0 if no data is available
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			return 0;
+		}
+		return 0;
+	}
+	
+	return static_cast<size_t>(bytes_read);
 }
 
 int UartLink::get_baud_constant(int baudrate) {

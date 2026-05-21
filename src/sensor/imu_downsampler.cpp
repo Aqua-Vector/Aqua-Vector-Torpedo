@@ -36,12 +36,14 @@ ImuSample ImuDownsampler::finalize() const {
         // 불완전 — 빈 결과
         out.ax = out.ay = out.az = 0.0f;
         out.gx = out.gy = out.gz = 0.0f;
+        out.roll = out.pitch = out.yaw = 0.0f;
         return out;
     }
     
     // 각 축 8개 값 분리
     float ax[8], ay[8], az[8];
     float gx[8], gy[8], gz[8];
+    float roll[8], pitch[8], yaw[8];
     for (int i = 0; i < 8; i++) {
         ax[i] = buffer_[i].ax;
         ay[i] = buffer_[i].ay;
@@ -49,6 +51,9 @@ ImuSample ImuDownsampler::finalize() const {
         gx[i] = buffer_[i].gx;
         gy[i] = buffer_[i].gy;
         gz[i] = buffer_[i].gz;
+        roll[i]  = buffer_[i].roll;
+        pitch[i] = buffer_[i].pitch;
+        yaw[i]   = buffer_[i].yaw;
     }
     
     // 각 축 Trimmed Mean
@@ -58,6 +63,9 @@ ImuSample ImuDownsampler::finalize() const {
     out.gx = trimmed_mean_8(gx);
     out.gy = trimmed_mean_8(gy);
     out.gz = trimmed_mean_8(gz);
+    out.roll  = trimmed_mean_8(roll);
+    out.pitch = trimmed_mean_8(pitch);
+    out.yaw   = trimmed_mean_8(yaw);
     
     // 타임스탬프 = 마지막 sub-sample
     out.t_us = buffer_[IMU_SUB_SAMPLES - 1].t_us;

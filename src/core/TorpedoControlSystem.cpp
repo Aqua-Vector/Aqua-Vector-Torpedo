@@ -1,4 +1,5 @@
 #include "core/TorpedoControlSystem.hpp"
+#include "torpedo/domain/estimator/bias_calibrator.hpp"
 #include "protocol/UplinkPacket.hpp"
 #include "protocol/ProtocolIds.hpp"
 #include <iostream>
@@ -62,6 +63,44 @@ bool TorpedoControlSystem::init() {
 		return false;
 	}
 
+	// [추가] 5초간 정지 상태 캘리브레이션 수행
+	std::cout << "[TCS] Starting Static Calibration (5 seconds)..." << std::endl;
+	torpedo::domain::BiasCalibrator cal;
+	cal.start(5.0f, 100); // 5초, 100Hz
+
+	auto cal_start = std::chrono::steady_clock::now();
+	while (!cal.is_done()) {
+		torpedo::ImuSample s;
+		if (imu_.read(s)) {
+			cal.add_sample(s);
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		
+		// 타임아웃 방지 (10초 이상 걸리면 중단)
+		auto now = std::chrono::steady_clock::now();
+		if (std::chrono::duration_cast<std::chrono::seconds>(now - cal_start).count() > 10) {
+			std::cerr << "[TCS] Calibration Timeout!" << std::endl;
+			break;
+		}
+	}
+
+	if (cal.is_done()) {
+		auto res = cal.finalize();
+		if (res.success) {
+			bias_estimate_ = res.bias;
+			// ESKF 초기 자세 설정 (원본 ESKF를 건드리지 않으려면 re-init 사용)
+			torpedo::domain::EskfInitParams params;
+			params.q0 = res.q0;
+			eskf_estimator_.init(params, 0.01f);
+			
+			std::cout << "[TCS] Calibration Successful!" << std::endl;
+			std::cout << " - Bias Accel: " << bias_estimate_.b_a.transpose() << std::endl;
+			std::cout << " - Bias Gyro: " << bias_estimate_.b_g.transpose() << std::endl;
+		}
+	} else {
+		std::cerr << "[TCS] Calibration Failed!" << std::endl;
+	}
+
 	std::cout << "[TCS] Initialization Successful" << std::endl;
 	return true;
 }
@@ -105,7 +144,15 @@ void TorpedoControlSystem::mainLoopTask() {
 		// IMU 데이터 읽기 및 ESKF Predict
 		torpedo::ImuSample imu_sample;
 		if (imu_.read(imu_sample)) {
+			// [수정] 가속도 데이터는 사용하지 않도록 0으로 설정 (사용자 요청: 가속도 말고 heading만 사용)
+			imu_sample.ax = 0.0f;
+			imu_sample.ay = 0.0f;
+			imu_sample.az = 0.0f;
+
 			eskf_estimator_.predict(imu_sample, bias_estimate_, 0.01f);
+
+			// [수정] MiniIMU의 절대 각도(Yaw)를 LPF 적용하여 RPS 트래커 전용으로 보관
+			latest_imu_yaw_ = yaw_lpf_.updateAngle(imu_sample.yaw);
 		}
 
 		// 단일 제어 사이클 실행 
@@ -145,9 +192,12 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 	FeedbackPayload stm_fb;
 	uint64_t stm_ts;
 	if (stm32_feedback_mb_.fetch(stm_fb, stm_ts)) {
-		float speed = (stm_fb.m1_rps + stm_fb.m2_rps) * 0.5f * RPS_TO_MPS;
-		rps_tracker_.update(speed, eskf_estimator_.state().q, 0.01f);
-		// HIL 테스트에서는 predict 단계가 돌지 않아 ESKF P 행렬이 불안정하므로 update_lidar(tracker_p)는 삭제합니다.
+		float raw_speed = (stm_fb.m1_rps + stm_fb.m2_rps) * 0.5f * RPS_TO_MPS;
+		float filtered_speed = speed_lpf_.update(raw_speed);
+		
+		// [수정] ESKF의 드리프트 되는 자세 대신, MiniIMU의 절대 Yaw를 사용하여 위치 적분
+		Eigen::Quaternionf q_stable = Eigen::Quaternionf(Eigen::AngleAxisf(latest_imu_yaw_, Eigen::Vector3f::UnitZ()));
+		rps_tracker_.update(filtered_speed, q_stable, 0.01f);
 	}
 
 	// 데이터 유효성 검사 (500ms 이상 지연 시 데이터 없음으로 처리)
@@ -263,7 +313,7 @@ void TorpedoControlSystem::onStm32FeedbackReceived(const FeedbackPayload& payloa
 
 	// RPS 기반 속도 계산 (추후 RpsPositionTracker 등에서 사용 가능)
 	// (void)speed; // Silence unused warning if needed, but we keep the logic for future use
-	[[maybe_unused]] float speed = (payload.m1_rps + payload.m2_rps) * 0.5f * RPS_TO_MPS;
+	[[maybe_unused]] float speed = (payload.m1_rps - payload.m2_rps) * 0.5f * RPS_TO_MPS;
 	
 	// TODO: 팀원이 만든 ESKF를 수정하지 않고 속도를 반영할 별도의 Tracker를 사용할 예정입니다.
 	// 현재는 속도 업데이트를 건너뜁니다.

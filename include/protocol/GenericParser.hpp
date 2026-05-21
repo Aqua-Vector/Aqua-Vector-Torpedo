@@ -77,15 +77,18 @@ size_t GenericParser<Policy>::serialize(const GenericPacket<T, typename Policy::
 template <typename Policy>
 void GenericParser<Policy>::parseByte(uint8_t byte, uint64_t timestamp_ms) {
 	if (debug_mode_) {
-		// Print a dot for activity, or hex if it looks interesting
 		if (state_ == ParseState::WAIT_SYNC1) {
+			static int raw_count = 0;
+			std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
+			if (++raw_count % 27 == 0) {
+				std::cout << " [27 Bytes]" << std::endl;
+			} else if (raw_count % 9 == 0) {
+				std::cout << "| ";
+			}
+			std::cout << std::flush;
+
 			if (byte == Policy::SYNC1) {
-				std::cout << "\n[Parser] Potential SYNC1 (0x" << std::hex << (int)byte << ") at " << std::dec << timestamp_ms << "ms" << std::endl;
-			} else {
-				// Print raw bytes in hex periodically or if they seem like they could be sync bytes
-				static int byte_count = 0;
-				std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " " << std::dec << std::flush;
-				if (++byte_count % 16 == 0) std::cout << std::endl;
+				std::cout << "\n[Parser] Potential SYNC1 (0x" << std::hex << (int)byte << ") found!" << std::endl;
 			}
 		}
 	}
@@ -153,6 +156,7 @@ void GenericParser<Policy>::parseByte(uint8_t byte, uint64_t timestamp_ms) {
 				// Verify CRC on [Function, Length, Payload...]
 				typename Policy::CrcType calculated = Policy::calculateCrc(buffer_, length_ + 2);
 				if (calculated == received_crc_) {
+					if (debug_mode_) std::cout << "[Packet RX] ID: " << (int)msg_id_ << " (dec), Size: " << (int)length_ << std::endl;
 					if (debug_mode_) std::cout << "[Parser] CRC OK, calling handler" << std::endl;
 					if (handlers_[msg_id_]) {
 						handlers_[msg_id_]->handle(buffer_ + 2, length_, timestamp_ms);

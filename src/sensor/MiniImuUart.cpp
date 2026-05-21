@@ -144,8 +144,10 @@ void MiniImuUart::rxLoop() {
 
 	float t_ax = 0.0f, t_ay = 0.0f, t_az = 0.0f;
 	float t_gx = 0.0f, t_gy = 0.0f, t_gz = 0.0f;
+	float t_roll = 0.0f, t_pitch = 0.0f, t_yaw = 0.0f;
 	bool accel_ready = false;
 	bool gyro_ready = false;
+	bool angle_ready = false;
 
 	while (is_running_) {
 		if (!readFrame(frame)) continue;
@@ -171,8 +173,14 @@ void MiniImuUart::rxLoop() {
 			t_gz = static_cast<float>(z) / 32768.0f * 2000.0f * (M_PI / 180.0f);
 			gyro_ready = true;
 		}
+		else if (frame[1] == 0x53) {
+			t_roll  = static_cast<float>(x) / 32768.0f * 180.0f * (M_PI / 180.0f);
+			t_pitch = static_cast<float>(y) / 32768.0f * 180.0f * (M_PI / 180.0f);
+			t_yaw   = static_cast<float>(z) / 32768.0f * 180.0f * (M_PI / 180.0f);
+			angle_ready = true;
+		}
 
-		if (accel_ready && gyro_ready) {
+		if (accel_ready && gyro_ready && angle_ready) {
 			uint32_t current_seq = seq_counter_.load(std::memory_order_relaxed);
 			seq_counter_.store(current_seq + 1, std::memory_order_release);
 
@@ -183,12 +191,16 @@ void MiniImuUart::rxLoop() {
 			latest_sample_.gx = t_gx;
 			latest_sample_.gy = t_gy;
 			latest_sample_.gz = t_gz;
+			latest_sample_.roll  = t_roll;
+			latest_sample_.pitch = t_pitch;
+			latest_sample_.yaw   = t_yaw;
 			latest_sample_.valid = true;
 
 			seq_counter_.store(current_seq + 2, std::memory_order_release);
 
 			accel_ready = false;
 			gyro_ready = false;
+			angle_ready = false;
 		}
 	}
 }
