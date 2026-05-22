@@ -172,7 +172,7 @@ void EskfEstimator::inject_error(const Eigen::Matrix<float, 9, 1>& delta_x) {
 
     // 위치 / 속도
     x_.p += delta_x.segment<3>(0);  // δp 흡수
-    x_.v += delta_x.segment<3>(1);  // δv 흡수
+    x_.v += delta_x.segment<3>(3);  // δv 흡수
 
     // 자세 quaternion 곱
     Eigen::Vector3f dtheta = delta_x.segment<3>(6); // δθ
@@ -196,6 +196,39 @@ Eigen::Matrix3f EskfEstimator::skew_symmetric(const Eigen::Vector3f& v) {
          v.z(),     0, -v.x(),
         -v.y(),  v.x(),     0;
     return S;
+}
+
+void EskfEstimator::update_attitude_accel(
+    float ax, float ay, float az, float alpha) {
+
+    float a_mag = std::sqrt(ax*ax + ay*ay + az*az);
+    if (a_mag < 0.1f) return;
+
+    // 가속도계로 roll/pitch 추정
+    float roll_meas  = std::atan2(ay, az);
+    float pitch_meas = std::atan2(-ax, std::sqrt(ay*ay + az*az));
+
+    // 현재 자세에서 yaw만 추출
+    float yaw = std::atan2(
+        2.0f * (x_.q.w() * x_.q.z() + x_.q.x() * x_.q.y()),
+        1.0f - 2.0f * (x_.q.y() * x_.q.y() + x_.q.z() * x_.q.z())
+    );
+
+    // 현재 roll/pitch 추출
+    Eigen::Matrix3f R = x_.q.toRotationMatrix();
+    float roll  = std::atan2(R(2,1), R(2,2));
+    float pitch = std::asin(-R(2,0));
+
+    // 상보 필터
+    float roll_new  = (1.0f - alpha) * roll  + alpha * roll_meas;
+    float pitch_new = (1.0f - alpha) * pitch + alpha * pitch_meas;
+
+    // ZYX 순서로 quaternion 생성 (yaw → pitch → roll)
+    Eigen::AngleAxisf y_aa(yaw,       Eigen::Vector3f::UnitZ());
+    Eigen::AngleAxisf p_aa(pitch_new, Eigen::Vector3f::UnitY());
+    Eigen::AngleAxisf r_aa(roll_new,  Eigen::Vector3f::UnitX());
+
+    x_.q = (y_aa * p_aa * r_aa).normalized();
 }
 
 } // namespace torpedo::domain

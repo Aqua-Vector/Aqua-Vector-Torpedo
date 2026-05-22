@@ -99,6 +99,18 @@ private:
     bool process_downlink();
     void send_uplink();
     bool gather_sub_samples(ImuSample& out);  // 8 sub-samples → Trimmed Mean
+
+    // IMU 비동기 버퍼
+    static constexpr int IMU_RING_SIZE = 32;  // 2사이클치 여유
+    ImuSample            imu_ring_[IMU_RING_SIZE];
+    std::atomic<int>     imu_write_idx_{0};
+    std::atomic<int>     imu_read_idx_{0};
+    
+    std::thread          imu_thread_;
+    std::atomic<bool>    imu_thread_running_{false};
+    
+    void imu_thread_func();
+    bool pop_imu_samples(ImuSample* out, int n);  // n개 꺼내기
 };
 
 } // namespace torpedo

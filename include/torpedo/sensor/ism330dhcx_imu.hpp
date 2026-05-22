@@ -15,7 +15,7 @@ namespace torpedo {
 
 struct Ism330dhcxConfig {
     std::string spi_device = "/dev/spidev0.0";
-    uint32_t    spi_speed_hz = 10000000;  // 10 MHz
+    uint32_t    spi_speed_hz = 1000000;  // 1 MHz
 };
 
 class Ism330dhcxImu : public IImu {

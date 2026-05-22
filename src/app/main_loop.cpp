@@ -56,6 +56,12 @@ bool MainLoop::init(const MainLoopConfig& cfg) {
         cfg_.rs485_device.c_str(), cfg_.rs485_baud);
     std::printf("  주기: %d us (%.0f Hz)\n", cfg_.period_us, 1.0f / cfg_.dt);
     return true;
+
+    // IMU 스레드 시작
+    imu_thread_running_.store(true);
+    imu_thread_ = std::thread(&MainLoop::imu_thread_func, this);
+    
+    return true;
 }
 
 bool MainLoop::calibrate() {
@@ -116,28 +122,17 @@ bool MainLoop::calibrate() {
 }
 
 bool MainLoop::gather_sub_samples(ImuSample& out) {
-    // 100Hz 사이클 안 8 sub-samples 수집 + Trimmed Mean
-    downsampler_.reset();
+    int available = imu_write_idx_.load(std::memory_order_acquire)
+                  - imu_read_idx_.load(std::memory_order_relaxed);
     
-    // 8 sub-samples 시도 — 사이클 시간 안에서
-    for (int i = 0; i < IMU_SUB_SAMPLES; i++) {
-        ImuSample s;
-        // IMU read (STATUS poll 내부)
-        // 안 ready면 잠시 대기 후 재시도 (최대 몇 번)
-        bool ok = false;
-        for (int retry = 0; retry < 4; retry++) {
-            if (imu_->read(s)) { ok = true; break; }
-            usleep(200);  // 200μs 대기
-        }
-        if (!ok) {
-            // 이번 sub-sample 실패
-            continue;
-        }
-        downsampler_.add(s);
+    if (available < IMU_SUB_SAMPLES) {
+        return false;  // 아직 8개 안 모임 (이번 사이클 predict 스킵)
     }
     
-    if (!downsampler_.is_full()) {
-        return false;  // 충분한 sub-samples 못 모음
+    downsampler_.reset();
+    for (int i = 0; i < IMU_SUB_SAMPLES; i++) {
+        int idx = imu_read_idx_.fetch_add(1, std::memory_order_relaxed) % IMU_RING_SIZE;
+        downsampler_.add(imu_ring_[idx]);
     }
     
     out = downsampler_.finalize();
@@ -278,6 +273,9 @@ const domain::EskfState& MainLoop::state() const {
 }
 
 void MainLoop::shutdown() {
+    imu_thread_running_.store(false);
+    if (imu_thread_.joinable()) imu_thread_.join();
+
     if (initialized_) {
         rs485_.close();
         if (!cfg_.imu_override) {
@@ -285,6 +283,20 @@ void MainLoop::shutdown() {
         }
         initialized_ = false;
         std::printf("[main] 정리 완료\n");
+    }
+}
+
+void MainLoop::imu_thread_func() {
+    while (imu_thread_running_.load()) {
+        ImuSample s;
+        if (imu_->read(s)) {
+            int idx = imu_write_idx_.load(std::memory_order_relaxed) % IMU_RING_SIZE;
+            imu_ring_[idx] = s;
+            imu_write_idx_.fetch_add(1, std::memory_order_release);
+        }
+        // STATUS bit 폴링 - 새 데이터 없으면 짧게 대기
+        // 833Hz = 1.2ms 간격이니 0.5ms 대기가 적절
+        usleep(500);
     }
 }
 

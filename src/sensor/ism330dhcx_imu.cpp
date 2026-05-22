@@ -15,7 +15,7 @@ bool Ism330dhcxImu::init() {
     SpiConfig spi_cfg;
     spi_cfg.device   = cfg_.spi_device;
     spi_cfg.speed_hz = cfg_.spi_speed_hz;
-    spi_cfg.mode     = 0;
+    spi_cfg.mode     = 3;
     spi_cfg.bits     = 8;
     
     if (!spi_.open(spi_cfg)) {
@@ -71,7 +71,7 @@ bool Ism330dhcxImu::verify_chip_id() {
 
 bool Ism330dhcxImu::configure_sensors() {
     if (!spi_.write_reg(CTRL3_C, CTRL3_SW_RESET)) return false;
-    usleep(10000);
+    usleep(20000);
     
     if (!spi_.write_reg(CTRL3_C, CTRL3_BDU | CTRL3_IF_INC)) return false;
     
@@ -84,6 +84,18 @@ bool Ism330dhcxImu::configure_sensors() {
     if (!spi_.write_reg(CTRL2_G, ctrl2)) return false;
     
     usleep(20000);
+    return true;
+
+    // ── 확인용 readback 추가 ──
+    uint8_t check1 = 0, check2 = 0, check3 = 0;
+    spi_.read_reg(CTRL1_XL, check1);
+    spi_.read_reg(CTRL2_G,  check2);
+    spi_.read_reg(CTRL3_C,  check3);
+    std::printf("[DEBUG] CTRL1_XL=0x%02X CTRL2_G=0x%02X CTRL3_C=0x%02X\n",
+        check1, check2, check3);
+    std::printf("[DEBUG] 기대값: CTRL1_XL=0x%02X CTRL2_G=0x%02X\n",
+        ctrl1, ctrl2);
+
     return true;
 }
 
@@ -119,5 +131,7 @@ bool Ism330dhcxImu::read(ImuSample& out) {
     
     return true;
 }
+
+
 
 } // namespace torpedo

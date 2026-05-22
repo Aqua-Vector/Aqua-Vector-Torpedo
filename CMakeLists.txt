@@ -56,7 +56,6 @@ set(CORE_SOURCES
     src/comm/spidev.cpp
     src/comm/rs485_port.cpp
     src/comm/packet_io.cpp
-    src/comm/crc16.cpp
     src/domain/estimator/eskf_estimator.cpp
     src/domain/estimator/bias_calibrator.cpp
     
@@ -84,6 +83,14 @@ target_include_directories(torpedo_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
     ${CMAKE_CURRENT_SOURCE_DIR}/include/common
     ${CMAKE_CURRENT_SOURCE_DIR}/include/control
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/hal
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/sensor
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/hal
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/domain
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/domain/estimator
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/comm
 )
 
 # 라이브러리 링크 (Eigen, Pthread)
@@ -116,6 +123,7 @@ endfunction()
 add_torpedo_test(test_iimu_compile)
 add_torpedo_test(test_imu_downsampler)
 add_torpedo_test(test_eskf_state)
+add_torpedo_test(test_imu_standalone)
 # add_torpedo_test(test_mux)
 
 # ─── 6. 빌드 정보 출력 ───

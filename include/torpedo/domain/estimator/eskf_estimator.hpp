@@ -79,6 +79,9 @@ public:
     /// NHC: body lateral velocity = 0
     void update_nhc();
 
+    void update_attitude_accel(float ax, float ay, float az,
+                           float alpha = 0.01f);
+
     // -------- 상태 조회 --------
     const EskfState& state() const { return x_; }
 

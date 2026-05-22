@@ -65,7 +65,7 @@ CalibrationResult BiasCalibrator::finalize() const {
     // 그 다음 b_a = mean_accel - g_body
     Eigen::AngleAxisf roll_aa(res.roll_rad,  Eigen::Vector3f::UnitX());
     Eigen::AngleAxisf pitch_aa(res.pitch_rad, Eigen::Vector3f::UnitY());
-    Eigen::Quaternionf q_init = pitch_aa * roll_aa;  // pitch 후 roll (또는 반대, 작은 각이라 같음)
+    Eigen::Quaternionf q_init = roll_aa * pitch_aa;  // roll 후 pitch (또는 반대, 작은 각이라 같음)
     res.q0 = q_init;
     
     // nav frame 중력 (z 위)
@@ -83,6 +83,10 @@ CalibrationResult BiasCalibrator::finalize() const {
     
     res.success = true;
     return res;
+
+    // bias_calibrator.cpp finalize() 안에 추가
+    std::printf("[DEBUG] mean_accel = (%.4f, %.4f, %.4f) m/s²\n",
+    mean_accel.x(), mean_accel.y(), mean_accel.z());
 }
 
 } // namespace torpedo::domain

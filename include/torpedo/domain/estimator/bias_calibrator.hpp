@@ -20,7 +20,7 @@
 
 namespace torpedo::domain {
 
-constexpr float GRAVITY_MS2 = 9.80665f;
+constexpr float GRAVITY_MS2 = 9.9974f;
 
 struct CalibrationResult {
     BiasEstimate         bias;       // b_a, b_g
