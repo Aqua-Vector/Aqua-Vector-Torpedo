@@ -9,8 +9,27 @@
 #include "IMessageQueue.hpp"
 #include "StaticRingBuffer.hpp"
 
+/**
+ * @brief Base interface for NetworkManager to allow polymorphic usage
+ */
+class INetworkManager {
+public:
+	virtual ~INetworkManager() = default;
+	virtual bool start() = 0;
+	virtual void stop() = 0;
+};
+
+/**
+ * @brief Interface for NetworkManager with sending capability
+ */
+template <typename TxPacket>
+class ITxNetworkManager : public INetworkManager {
+public:
+	virtual bool send(const TxPacket& packet) = 0;
+};
+
 template <typename ParserT, typename LinkT, typename TxPacket>
-class NetworkManager {
+class NetworkManager : public ITxNetworkManager<TxPacket> {
 private:
 	LinkT& link_;
 	ParserT& parser_;
@@ -59,6 +78,8 @@ private:
 				if (len > 0) {
 					link_.send(tx_buf, len);
 				}
+			} else {
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
 		}
 	}
@@ -69,7 +90,7 @@ public:
 
 	~NetworkManager() { stop(); }
 
-	bool start() {
+	bool start() override {
 		if (is_running_.load(std::memory_order_acquire)) return true;
 		if (!link_.initialize()) return false;
 
@@ -80,7 +101,7 @@ public:
 		return true;
 	}
 
-	void stop() {
+	void stop() override {
 		if (!is_running_.load(std::memory_order_acquire)) return;
 		is_running_.store(false, std::memory_order_release);
 
@@ -92,7 +113,7 @@ public:
 		link_.close();
 	}
 
-	bool send(const TxPacket& packet) {
+	bool send(const TxPacket& packet) override {
 		if (!is_running_.load(std::memory_order_acquire)) return false;
 		return tx_queue_.push(packet);
 	}

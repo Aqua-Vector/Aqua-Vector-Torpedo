@@ -85,9 +85,9 @@ void test_slew_rate_limiting() {
     ServoMotor servo(pwm0, config);
     servo.init();
 
-    // 1. Move to 0.5 (45 degree) with dt=0.1s
+    // 1. Move to 45 degree with dt=0.1s
     // 180 deg/sec * 0.1s = 18.0 deg max step
-    servo.setAngle(0.5f, 0.1f);
+    servo.setAngle(45.0f, 0.1f);
     
     // We expect current_angle to be 18.0f since target was 45.0f
     // Duty cycle at 18 deg:
@@ -101,7 +101,7 @@ void test_slew_rate_limiting() {
     std::cout << "  - Slew rate step 1 OK (18 deg)" << std::endl;
 
     // 2. Large dt move
-    servo.setAngle(1.0f, 1.0f); // Should reach 90 deg immediately
+    servo.setAngle(90.0f, 1.0f); // Should reach 90 deg immediately
     duty = env.readFile(env.pwm0_path + "duty_cycle");
     assert(duty == "2000000");
     std::cout << "  - Reach target with large dt OK" << std::endl;

@@ -8,7 +8,7 @@
 #include "guidance/EbImuUart.hpp"
 #include "utils/LowPassFilter.hpp"
 #include "utils/Mailbox.hpp"
-#include "utils/ThreadSafeQueue.hpp"
+#include "utils/StaticRingBuffer.hpp"
 
 // 통신 관련
 #include "UartLink.hpp"
@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
     EbImuUart imu(imu_port, 921600); // 사용자가 설정한 보드레이트 921600
     UartLink stm_link(stm_port, 230400);
     STMControlParser stm_parser;
-    ThreadSafeQueue<STMPacket> stm_tx_q;
+    StaticRingBuffer<STMPacket, 64> stm_tx_q;
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_manager(stm_link, stm_parser, stm_tx_q);
     
     Mailbox<FeedbackPayload> stm_fb_mb;

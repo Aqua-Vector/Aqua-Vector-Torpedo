@@ -26,10 +26,11 @@
 #include "torpedo/domain/estimator/rps_tracker.hpp"
 #include "torpedo/sensor/iimu.hpp"
 
+#include "protocol/UplinkPacket.hpp"
+
 /**
  * @brief 패킷 타입 별칭 정의
  */
-using TorpedoPacket = GenericPacket<TorpedoTelemetryPayload, uint16_t>;
 using STMPacket = GenericPacket<ControlPayload, uint8_t>;
 
 /**
@@ -58,11 +59,8 @@ private:
 	utils::LowPassFilter yaw_lpf_{0.3f};
 
 	// 통신 매니저 참조
-	NetworkManager<TorpedoParser, UartLink, TorpedoPacket>& gcs_manager_;
-	NetworkManager<STMControlParser, UartLink, STMPacket>& stm32_manager_;
-
-	// 통제소 전용 Uplink 포트
-	UartLink uplink_uart_;
+	ITxNetworkManager<UplinkPacket>& gcs_manager_;
+	ITxNetworkManager<STMPacket>& stm32_manager_;
 
 	// 데이터 저장소
 	Mailbox<ControlStationPayload> gcs_data_mb_;
@@ -90,8 +88,8 @@ public:
 			AutoSource& auto_source,
 			torpedo::IImu& imu,
 			torpedo::domain::EskfEstimator& eskf,
-			NetworkManager<TorpedoParser, UartLink, TorpedoPacket>& gcs_manager,
-			NetworkManager<STMControlParser, UartLink, STMPacket>& stm32_manager
+			ITxNetworkManager<UplinkPacket>& gcs_manager,
+			ITxNetworkManager<STMPacket>& stm32_manager
 			);
 
 	~TorpedoControlSystem();
@@ -130,16 +128,17 @@ public:
 	 */
 	void onGcsDataReceived(const ControlStationPayload& payload, uint64_t timestamp_ms);
 
+protected:
+	/**
+	 * @brief 단일 제어 사이클 실행
+	 */
+	void processControlCycle(uint64_t current_time_ms);
+
 private:
 	/**
 	 * @brief 100Hz 주기 타이밍 루프
 	 */
 	void mainLoopTask();
-
-	/**
-	 * @brief 단일 제어 사이클 실행
-	 */
-	void processControlCycle(uint64_t current_time_ms);
 
 	/**
 	 * @brief 통제소로 좌표 정보 직접 송신 (10Hz)

@@ -154,6 +154,8 @@ add_torpedo_test(test_eskf_state)
 add_torpedo_test(test_actuator)
 add_torpedo_test(test_mux)
 add_torpedo_test(test_tcs)
+add_torpedo_test(test_command_routing)
+add_torpedo_test(test_async_integration)
 add_torpedo_test(test_control_station_protocol)
 
 # Hardware & Manual Tests
@@ -171,6 +173,12 @@ target_link_libraries(test_stm_feedback PRIVATE torpedo_core)
 
 add_executable(hw_test_control_station tests/hw_test_control_station.cpp)
 target_link_libraries(hw_test_control_station PRIVATE torpedo_core)
+
+add_executable(hw_test_integration_rc_car tests/hw_test_integration_rc_car.cpp)
+target_link_libraries(hw_test_integration_rc_car PRIVATE torpedo_core)
+
+add_executable(hw_test_command_pipeline tests/hw_test_command_pipeline.cpp)
+target_link_libraries(hw_test_command_pipeline PRIVATE torpedo_core)
 
 add_executable(test_miniimu_uart_class tests/test_miniimu_uart_class.cpp)
 target_link_libraries(test_miniimu_uart_class PRIVATE torpedo_core)
@@ -192,6 +200,12 @@ target_link_libraries(test_ebimu_odometry PRIVATE torpedo_core)
 
 add_executable(integration_hil_test tests/integration_hil_test.cpp)
 target_link_libraries(integration_hil_test PRIVATE torpedo_core)
+
+add_executable(rs_rx tests/RX.cpp)
+target_link_libraries(rs_rx PRIVATE torpedo_core)
+
+add_executable(rs_tx tests/TX.cpp)
+target_link_libraries(rs_tx PRIVATE torpedo_core)
 
 # ─── 7. 빌드 정보 출력 ───
 message(STATUS "")

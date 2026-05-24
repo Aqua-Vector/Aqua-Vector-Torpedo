@@ -13,7 +13,7 @@
 #include "TorpedoParser.hpp"
 #include "STMControlParser.hpp"
 #include "UartLink.hpp"
-#include "ThreadSafeQueue.hpp"
+#include "StaticRingBuffer.hpp"
 #include "IPwmChannel.hpp"
 #include "torpedo/sensor/MiniImuUart.hpp"
 #include "torpedo/domain/estimator/eskf_estimator.hpp"
@@ -53,10 +53,10 @@ int main() {
     TorpedoParser gcs_parser;
     STMControlParser stm_parser;
     
-    ThreadSafeQueue<TorpedoPacket> gcs_tx_q;
-    ThreadSafeQueue<STMPacket> stm_tx_q;
+    StaticRingBuffer<UplinkPacket, 64> gcs_tx_q;
+    StaticRingBuffer<STMPacket, 64> stm_tx_q;
     
-    NetworkManager<TorpedoParser, UartLink, TorpedoPacket> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
+    NetworkManager<TorpedoParser, UartLink, UplinkPacket> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
     MockPwm pwm1, pwm2;

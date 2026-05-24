@@ -13,7 +13,7 @@
 #include "ModeMux.hpp"
 #include "ActuatorManager.hpp"
 #include "LinuxPwmChannel.hpp"
-#include "ThreadSafeQueue.hpp"
+#include "StaticRingBuffer.hpp"
 #include "ProtocolIds.hpp"
 #include "Payloads.hpp"
 #include "Marshaller.hpp"
@@ -92,8 +92,8 @@ int main() {
     TorpedoParser gcs_parser;
     STMControlParser stm32_parser;
 
-    ThreadSafeQueue<TorpedoPacket> gcs_tx_queue;
-    ThreadSafeQueue<STMPacket> stm32_tx_queue;
+    StaticRingBuffer<UplinkPacket, 64> gcs_tx_queue;
+    StaticRingBuffer<STMPacket, 64> stm32_tx_queue;
 
     // 3. Logic Component Assembly
     ManualSource manual_source;
@@ -120,7 +120,7 @@ int main() {
     ActuatorManager actuator_manager(rudder_servo, elevator_servo);
 
     // 4. Communication Manager Setup
-    NetworkManager<TorpedoParser, UartLink, TorpedoPacket> gcs_manager(gcs_link, gcs_parser, gcs_tx_queue);
+    NetworkManager<TorpedoParser, UartLink, UplinkPacket> gcs_manager(gcs_link, gcs_parser, gcs_tx_queue);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm32_manager(stm32_link, stm32_parser, stm32_tx_queue);
 
     // 5. Torpedo Control System (TCS) Creation

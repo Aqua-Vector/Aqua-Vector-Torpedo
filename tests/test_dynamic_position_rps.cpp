@@ -11,7 +11,7 @@
 #include "torpedo/domain/estimator/bias_calibrator.hpp"
 #include "utils/LowPassFilter.hpp"
 #include "utils/Mailbox.hpp"
-#include "utils/ThreadSafeQueue.hpp"
+#include "utils/StaticRingBuffer.hpp"
 
 // 통신 관련
 #include "UartLink.hpp"
@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
     torpedo::sensor::MiniImuUart imu(imu_port, 115200);
     UartLink stm_link(stm_port, 230400);
     STMControlParser stm_parser;
-    ThreadSafeQueue<STMPacket> stm_tx_q;
+    StaticRingBuffer<STMPacket, 64> stm_tx_q;
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_manager(stm_link, stm_parser, stm_tx_q);
     
     Mailbox<FeedbackPayload> stm_fb_mb;

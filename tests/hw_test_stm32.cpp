@@ -10,7 +10,6 @@
 #include "ProtocolIds.hpp"
 #include "Payloads.hpp"
 #include "Marshaller.hpp"
-#include "ThreadSafeQueue.hpp"
 #include "TorpedoControlSystem.hpp"
 
 std::atomic<bool> g_running{true};

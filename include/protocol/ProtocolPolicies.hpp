@@ -11,7 +11,7 @@ struct TorpedoPolicy {
 	using CrcType = uint16_t;
 
 	static CrcType calculateCrc(const uint8_t* data, size_t length) {
-		return CrcCalculator::CalculateCrc16(data, length);
+		return CrcCalculator::CalculateCrc16Ccitt(data, length);
 	}
 };
 

@@ -17,7 +17,7 @@ public:
 	ServoMotor(IPwmChannel& pwm, const ServoConfig& config);
 
 	ErrorCode init();
-	ErrorCode setAngle(float normalized_cmd, float dt_sec);
+	ErrorCode setAngle(float target_degree, float dt_sec);
 	ErrorCode disable();
 };
 

@@ -20,7 +20,7 @@
 #include "control/AutoSource.hpp"
 #include "actuator/ActuatorManager.hpp"
 #include "hal/LinuxPwmChannel.hpp"
-#include "utils/ThreadSafeQueue.hpp"
+#include "utils/StaticRingBuffer.hpp"
 #include "utils/TimeUtils.hpp"
 
 using namespace torpedo;
@@ -65,12 +65,12 @@ int main() {
     // STM32 (UART PS1)
     UartLink stm32_link("/dev/ttyPS1", 230400);
     STMControlParser stm32_parser;
-    ThreadSafeQueue<STMPacket> stm32_tx_queue;
+    StaticRingBuffer<STMPacket, 64> stm32_tx_queue;
 
     // GCS/Uplink (UART S2) - 초기화 성공 확인용
-    UartLink gcs_link("/dev/ttyS2", 115200); 
+    UartLink gcs_link("/dev/ttyS2", 460800); 
     TorpedoParser gcs_parser;
-    ThreadSafeQueue<TorpedoPacket> gcs_tx_queue;
+    StaticRingBuffer<UplinkPacket, 64> gcs_tx_queue;
 
     // --- STEP 2: 제어 로직 조립 ---
     
@@ -92,7 +92,7 @@ int main() {
     eskf.init(eskf_params, 0.01f);
 
     // 통신 매니저
-    NetworkManager<TorpedoParser, UartLink, TorpedoPacket> gcs_manager(gcs_link, gcs_parser, gcs_tx_queue);
+    NetworkManager<TorpedoParser, UartLink, UplinkPacket> gcs_manager(gcs_link, gcs_parser, gcs_tx_queue);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm32_manager(stm32_link, stm32_parser, stm32_tx_queue);
 
     // --- STEP 3: 시스템 통합 (TCS) ---

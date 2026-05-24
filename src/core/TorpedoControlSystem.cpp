@@ -15,8 +15,8 @@ TorpedoControlSystem::TorpedoControlSystem(
 		AutoSource& auto_source,
 		torpedo::IImu& imu,
 		torpedo::domain::EskfEstimator& eskf,
-		NetworkManager<TorpedoParser, UartLink, TorpedoPacket>& gcs_manager,
-		NetworkManager<STMControlParser, UartLink, STMPacket>& stm32_manager
+		ITxNetworkManager<UplinkPacket>& gcs_manager,
+		ITxNetworkManager<STMPacket>& stm32_manager
 		)
 	: mode_mux_(mode_mux), 
 	actuator_manager_(actuator_manager),
@@ -26,7 +26,6 @@ TorpedoControlSystem::TorpedoControlSystem(
 	eskf_estimator_(eskf),
 	gcs_manager_(gcs_manager),
 	stm32_manager_(stm32_manager),
-	uplink_uart_("/dev/ttyS2", 115200),
 	is_running_(false) {
 		bias_estimate_.b_a.setZero();
 		bias_estimate_.b_g.setZero();
@@ -42,12 +41,6 @@ bool TorpedoControlSystem::init() {
 	// IMU 초기화
 	if (!imu_.init()) {
 		std::cerr << "[TCS] Failed to initialize IMU" << std::endl;
-		return false;
-	}
-
-	// 통제소 직접 송신용 UART 초기화
-	if (!uplink_uart_.initialize()) {
-		std::cerr << "[TCS] Failed to initialize Uplink UART (/dev/ttyS2)" << std::endl;
 		return false;
 	}
 
@@ -128,7 +121,6 @@ void TorpedoControlSystem::stop() {
 	// 통신 종료
 	gcs_manager_.stop();
 	stm32_manager_.stop();
-	uplink_uart_.close();
 	imu_.shutdown();
 
 	std::cout << "[TCS] System Stopped Safely" << std::endl;
@@ -290,22 +282,22 @@ void TorpedoControlSystem::sendUplinkTelemetry(uint64_t current_time_ms) {
 	// RPS 트래커 기반 위치 사용
 	const auto& pos = rps_tracker_.getPosition();
 	const auto& q = eskf_estimator_.state().q;
+	Eigen::Matrix3f R = q.toRotationMatrix();
+	float yaw = std::atan2(R(1, 0), R(0, 0));
 
+	// 통제소 전용 업링크 패킷 (Sync 0xBB + TorpedoUplinkPayload + CRC16)
 	UplinkPacket pkt;
 	pkt.payload.timestamp_us = static_cast<uint32_t>(current_time_ms * 1000);
 	pkt.payload.seq = seq_counter++;
 	pkt.payload.p_x = pos.x();
 	pkt.payload.p_y = pos.y();
-
-	Eigen::Matrix3f R = q.toRotationMatrix();
-	pkt.payload.yaw = std::atan2(R(1, 0), R(0, 0));
-
+	pkt.payload.yaw = yaw;
 	pkt.payload.status_flags = static_cast<uint8_t>(guidance_manager_.getPhase());
 	pkt.payload.reserved = 0;
-
 	pkt.finalizeCrc();
 
-	uplink_uart_.send(reinterpret_cast<const uint8_t*>(&pkt), sizeof(pkt));
+	// NetworkManager를 통한 송신 (포트 충돌 방지를 위해 단일 경로 사용)
+	gcs_manager_.send(pkt);
 }
 
 void TorpedoControlSystem::onStm32FeedbackReceived(const FeedbackPayload& payload, uint64_t timestamp_ms) {

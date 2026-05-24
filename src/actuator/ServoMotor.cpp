@@ -13,12 +13,12 @@ ErrorCode ServoMotor::init() {
 	return setAngle(0.0f, 0.0f);
 }
 
-ErrorCode ServoMotor::setAngle(float normalized_cmd, float dt_sec) {
-	if (!utils::isValid(normalized_cmd)) {
+ErrorCode ServoMotor::setAngle(float target_degree, float dt_sec) {
+	if (!utils::isValid(target_degree)) {
 		return ErrorCode::ERR_INVALID_PARAMETER;
 	}
 
-	float target_degree = utils::clamp(normalized_cmd, -1.0f, 1.0f) * config_.max_angle_deg;
+	target_degree = utils::clamp(target_degree, -config_.max_angle_deg, config_.max_angle_deg);
 
 	if (dt_sec > 0.0001f) {
 		float max_step = config_.max_deg_per_sec * dt_sec;
@@ -32,8 +32,6 @@ ErrorCode ServoMotor::setAngle(float normalized_cmd, float dt_sec) {
 	} else {
 		current_angle_ = target_degree;
 	}
-
-	current_angle_ = utils::clamp(current_angle_, -config_.max_angle_deg, config_.max_angle_deg);
 
 	uint32_t target_ns = calculatePulseWidth(current_angle_);
 	return pwm_.setDutyCycle(target_ns);

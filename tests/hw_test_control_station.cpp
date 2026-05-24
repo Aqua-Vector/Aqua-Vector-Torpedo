@@ -32,7 +32,7 @@ struct __attribute__((packed)) DownlinkPacket {
 	uint16_t crc16;          
 };
 
-/*
+
 speed_t get_baud_constant(int baudrate) {
 	switch (baudrate) {
 		case 9600:   return B9600;
@@ -46,7 +46,6 @@ speed_t get_baud_constant(int baudrate) {
 		default:     return B115200;
 	}
 }
-*/
 
 int main(int argc, char** argv) {
 	signal(SIGINT, signalHandler);
