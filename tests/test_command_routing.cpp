@@ -18,6 +18,7 @@
 #include "torpedo/sensor/fake_imu.hpp"
 #include "torpedo/hal/system_clock.hpp"
 #include "torpedo/domain/estimator/eskf_estimator.hpp"
+#include "torpedo/domain/estimator/rps_tracker.hpp"
 
 // Simple assertion macros
 #define ASSERT_TRUE(cond) if (!(cond)) { std::cerr << "[FAIL] " << #cond << " at line " << __LINE__ << std::endl; return false; }
@@ -78,10 +79,10 @@ bool run_test() {
     MockUartLink gcs_link, stm_link;
     TorpedoParser gcs_parser;
     STMControlParser stm_parser;
-    StaticRingBuffer<UplinkPacket, 64> gcs_tx_q;
+    StaticRingBuffer<GenericPacket<TorpedoUplinkPayload, uint16_t>, 64> gcs_tx_q;
     StaticRingBuffer<STMPacket, 64> stm_tx_q;
     
-    NetworkManager<TorpedoParser, UartLink, UplinkPacket> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
+    NetworkManager<TorpedoParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
     MockPwm pwm_rudder, pwm_elevator;
@@ -100,7 +101,8 @@ bool run_test() {
     torpedo::domain::EskfInitParams eskf_params;
     eskf.init(eskf_params, 0.01f);
 
-    TestableTCS tcs(mux, am, ms, as, imu, eskf, gcs_nm, stm_nm);
+    torpedo::domain::RpsPositionTracker rps_tracker;
+    TestableTCS tcs(mux, am, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
 
     // Start managers to allow send() to work and threads to process
     stm_nm.start();

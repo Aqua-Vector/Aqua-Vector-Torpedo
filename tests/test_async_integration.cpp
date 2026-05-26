@@ -15,7 +15,7 @@
 #include "control/AutoSource.hpp"
 #include "control/STMControlParser.hpp"
 #include "protocol/ProtocolIds.hpp"
-#include "protocol/UplinkPacket.hpp"
+#include "protocol/GenericPacket.hpp"
 #include "protocol/Marshaller.hpp"
 #include "hal/IPwmChannel.hpp"
 #include "communication/UartLink.hpp"
@@ -23,6 +23,7 @@
 #include "torpedo/sensor/fake_imu.hpp"
 #include "torpedo/hal/system_clock.hpp"
 #include "torpedo/domain/estimator/eskf_estimator.hpp"
+#include "torpedo/domain/estimator/rps_tracker.hpp"
 
 // --- Mock Hardware ---
 
@@ -98,10 +99,10 @@ void run_async_integration_test() {
     TorpedoParser gcs_parser;
     STMControlParser stm_parser;
     
-    StaticRingBuffer<UplinkPacket, 64> gcs_tx_q;
+    StaticRingBuffer<GenericPacket<TorpedoUplinkPayload, uint16_t>, 64> gcs_tx_q;
     StaticRingBuffer<STMPacket, 64> stm_tx_q;
     
-    NetworkManager<TorpedoParser, UartLink, UplinkPacket> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
+    NetworkManager<TorpedoParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
     AsyncMockPwm pwm_rudder, pwm_elevator;
@@ -120,7 +121,8 @@ void run_async_integration_test() {
     torpedo::domain::EskfInitParams eskf_params;
     eskf.init(eskf_params, 0.01f);
 
-    TorpedoControlSystem tcs(mux, am, ms, as, imu, eskf, gcs_nm, stm_nm);
+    torpedo::domain::RpsPositionTracker rps_tracker;
+    TorpedoControlSystem tcs(mux, am, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
 
     // Register GCS Handler (as in main.cpp)
     GcsControlHandler gcs_handler(ms);

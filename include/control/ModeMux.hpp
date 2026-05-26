@@ -13,7 +13,7 @@ private:
 	Mailbox<ControlState>* auto_source_;
 	Mailbox<ControlState> safe_mailbox_;
 
-	static constexpr uint64_t WATCHDOG_TIMEOUT_MS = 1000;
+	static constexpr uint64_t WATCHDOG_TIMEOUT_MS = 5000;
 
 	void setupSafeState();
 

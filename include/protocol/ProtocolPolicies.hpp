@@ -37,4 +37,16 @@ struct ControlStationPolicy {
 	}
 };
 
+struct TelemetryPolicy {
+	static constexpr uint8_t SYNC1 = 0xAA;
+	static constexpr uint8_t SYNC2 = 0x55;
+	static constexpr size_t MAX_PAYLOAD_SIZE = 64;
+	using CrcType = uint16_t;
+	static constexpr uint8_t MSG_ID = 0x40;
+
+	static CrcType calculateCrc(const uint8_t* data, size_t length) {
+		return CrcCalculator::CalculateCrc16Ccitt(data, length);
+	}
+};
+
 #endif /* PROTOCOL_POLICES_HPP_ */

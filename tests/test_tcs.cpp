@@ -17,6 +17,7 @@
 #include "IPwmChannel.hpp"
 #include "torpedo/sensor/MiniImuUart.hpp"
 #include "torpedo/domain/estimator/eskf_estimator.hpp"
+#include "torpedo/domain/estimator/rps_tracker.hpp"
 
 // Mock PWM for testing
 class MockPwm : public IPwmChannel {
@@ -53,10 +54,10 @@ int main() {
     TorpedoParser gcs_parser;
     STMControlParser stm_parser;
     
-    StaticRingBuffer<UplinkPacket, 64> gcs_tx_q;
+    StaticRingBuffer<GenericPacket<TorpedoUplinkPayload, uint16_t>, 64> gcs_tx_q;
     StaticRingBuffer<STMPacket, 64> stm_tx_q;
     
-    NetworkManager<TorpedoParser, UartLink, UplinkPacket> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
+    NetworkManager<TorpedoParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
     MockPwm pwm1, pwm2;
@@ -77,7 +78,8 @@ int main() {
     eskf.init(eskf_params, 0.01f);
 
     // 2. Initialize TCS
-    TorpedoControlSystem tcs(mux, am, ms, as, imu, eskf, gcs_nm, stm_nm);
+    torpedo::domain::RpsPositionTracker rps_tracker;
+    TorpedoControlSystem tcs(mux, am, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
 
     if (!tcs.init()) {
         std::cerr << "TCS Init Failed" << std::endl;

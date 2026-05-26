@@ -26,7 +26,9 @@
 #include "torpedo/domain/estimator/rps_tracker.hpp"
 #include "torpedo/sensor/iimu.hpp"
 
-#include "protocol/UplinkPacket.hpp"
+#include "protocol/GenericPacket.hpp"
+#include "protocol/Payloads.hpp"
+#include "protocol/ProtocolPolicies.hpp"
 
 /**
  * @brief 패킷 타입 별칭 정의
@@ -50,7 +52,7 @@ private:
 	torpedo::IImu& imu_;
 	guidance::GuidanceManager guidance_manager_;
 	torpedo::domain::EskfEstimator& eskf_estimator_;
-	torpedo::domain::RpsPositionTracker rps_tracker_;
+	torpedo::domain::RpsPositionTracker& rps_tracker_;
 	torpedo::domain::BiasEstimate bias_estimate_;
 	float latest_imu_yaw_ = 0.0f;
 
@@ -59,7 +61,7 @@ private:
 	utils::LowPassFilter yaw_lpf_{0.3f};
 
 	// 통신 매니저 참조
-	ITxNetworkManager<UplinkPacket>& gcs_manager_;
+	ITxNetworkManager<GenericPacket<TorpedoUplinkPayload, uint16_t>>& gcs_manager_;
 	ITxNetworkManager<STMPacket>& stm32_manager_;
 
 	// 데이터 저장소
@@ -88,7 +90,8 @@ public:
 			AutoSource& auto_source,
 			torpedo::IImu& imu,
 			torpedo::domain::EskfEstimator& eskf,
-			ITxNetworkManager<UplinkPacket>& gcs_manager,
+			torpedo::domain::RpsPositionTracker& rps_tracker,
+			ITxNetworkManager<GenericPacket<TorpedoUplinkPayload, uint16_t>>& gcs_manager,
 			ITxNetworkManager<STMPacket>& stm32_manager
 			);
 

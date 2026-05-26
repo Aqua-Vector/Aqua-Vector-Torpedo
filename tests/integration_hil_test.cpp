@@ -9,6 +9,7 @@
 #include "core/TorpedoControlSystem.hpp"
 #include "torpedo/sensor/MiniImuUart.hpp"
 #include "torpedo/domain/estimator/eskf_estimator.hpp"
+#include "torpedo/domain/estimator/rps_tracker.hpp"
 #include "guidance/GuidanceManager.hpp"
 
 // 2. 통신 및 제어 인프라 헤더
@@ -70,7 +71,7 @@ int main() {
     // GCS/Uplink (UART S2) - 초기화 성공 확인용
     UartLink gcs_link("/dev/ttyS2", 460800); 
     TorpedoParser gcs_parser;
-    StaticRingBuffer<UplinkPacket, 64> gcs_tx_queue;
+    StaticRingBuffer<GenericPacket<TorpedoUplinkPayload, uint16_t>, 64> gcs_tx_queue;
 
     // --- STEP 2: 제어 로직 조립 ---
     
@@ -92,12 +93,13 @@ int main() {
     eskf.init(eskf_params, 0.01f);
 
     // 통신 매니저
-    NetworkManager<TorpedoParser, UartLink, UplinkPacket> gcs_manager(gcs_link, gcs_parser, gcs_tx_queue);
+    NetworkManager<TorpedoParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_manager(gcs_link, gcs_parser, gcs_tx_queue);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm32_manager(stm32_link, stm32_parser, stm32_tx_queue);
 
     // --- STEP 3: 시스템 통합 (TCS) ---
     
-    TorpedoControlSystem tcs(mode_mux, actuator_manager, manual_source, auto_source, imu, eskf, gcs_manager, stm32_manager);
+    domain::RpsPositionTracker rps_tracker;
+    TorpedoControlSystem tcs(mode_mux, actuator_manager, manual_source, auto_source, imu, eskf, rps_tracker, gcs_manager, stm32_manager);
 
     // STM32 피드백 콜백 등록
     HilFeedbackHandler stm32_handler(tcs);

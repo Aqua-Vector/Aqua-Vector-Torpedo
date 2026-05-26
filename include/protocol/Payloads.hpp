@@ -40,7 +40,6 @@ struct ControlStationPayload {
 };
 
 struct TorpedoUplinkPayload {
-	uint32_t timestamp_us;
 	uint16_t seq;
 	float p_x;
 	float p_y;

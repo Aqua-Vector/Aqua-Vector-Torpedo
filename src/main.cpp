@@ -20,6 +20,7 @@
 
 #include "torpedo/sensor/MiniImuUart.hpp"
 #include "torpedo/domain/estimator/eskf_estimator.hpp"
+#include "torpedo/domain/estimator/rps_tracker.hpp"
 
 // Global pointer for signal handling to allow graceful shutdown
 static TorpedoControlSystem* g_tcs = nullptr;
@@ -92,7 +93,7 @@ int main() {
     TorpedoParser gcs_parser;
     STMControlParser stm32_parser;
 
-    StaticRingBuffer<UplinkPacket, 64> gcs_tx_queue;
+    StaticRingBuffer<GenericPacket<TorpedoUplinkPayload, uint16_t>, 64> gcs_tx_queue;
     StaticRingBuffer<STMPacket, 64> stm32_tx_queue;
 
     // 3. Logic Component Assembly
@@ -120,11 +121,12 @@ int main() {
     ActuatorManager actuator_manager(rudder_servo, elevator_servo);
 
     // 4. Communication Manager Setup
-    NetworkManager<TorpedoParser, UartLink, UplinkPacket> gcs_manager(gcs_link, gcs_parser, gcs_tx_queue);
+    NetworkManager<TorpedoParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_manager(gcs_link, gcs_parser, gcs_tx_queue);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm32_manager(stm32_link, stm32_parser, stm32_tx_queue);
 
     // 5. Torpedo Control System (TCS) Creation
-    TorpedoControlSystem tcs(mode_mux, actuator_manager, manual_source, auto_source, imu, eskf, gcs_manager, stm32_manager);
+    torpedo::domain::RpsPositionTracker rps_tracker;
+    TorpedoControlSystem tcs(mode_mux, actuator_manager, manual_source, auto_source, imu, eskf, rps_tracker, gcs_manager, stm32_manager);
     g_tcs = &tcs;
 
     // 6. Callback Registration

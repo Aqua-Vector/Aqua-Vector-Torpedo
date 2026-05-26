@@ -180,6 +180,9 @@ target_link_libraries(hw_test_integration_rc_car PRIVATE torpedo_core)
 add_executable(hw_test_command_pipeline tests/hw_test_command_pipeline.cpp)
 target_link_libraries(hw_test_command_pipeline PRIVATE torpedo_core)
 
+add_executable(hw_test_uplink tests/hw_test_uplink.cpp)
+target_link_libraries(hw_test_uplink PRIVATE torpedo_core)
+
 add_executable(test_miniimu_uart_class tests/test_miniimu_uart_class.cpp)
 target_link_libraries(test_miniimu_uart_class PRIVATE torpedo_core)
 

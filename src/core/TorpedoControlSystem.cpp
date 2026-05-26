@@ -1,6 +1,8 @@
 #include "core/TorpedoControlSystem.hpp"
 #include "torpedo/domain/estimator/bias_calibrator.hpp"
-#include "protocol/UplinkPacket.hpp"
+#include "protocol/GenericPacket.hpp"
+#include "protocol/Payloads.hpp"
+#include "protocol/ProtocolPolicies.hpp"
 #include "protocol/ProtocolIds.hpp"
 #include <iostream>
 #include <iomanip>
@@ -15,7 +17,8 @@ TorpedoControlSystem::TorpedoControlSystem(
 		AutoSource& auto_source,
 		torpedo::IImu& imu,
 		torpedo::domain::EskfEstimator& eskf,
-		ITxNetworkManager<UplinkPacket>& gcs_manager,
+		torpedo::domain::RpsPositionTracker& rps_tracker,
+		ITxNetworkManager<GenericPacket<TorpedoUplinkPayload, uint16_t>>& gcs_manager,
 		ITxNetworkManager<STMPacket>& stm32_manager
 		)
 	: mode_mux_(mode_mux), 
@@ -24,6 +27,7 @@ TorpedoControlSystem::TorpedoControlSystem(
 	auto_source_(auto_source),
 	imu_(imu),
 	eskf_estimator_(eskf),
+	rps_tracker_(rps_tracker),
 	gcs_manager_(gcs_manager),
 	stm32_manager_(stm32_manager),
 	is_running_(false) {
@@ -285,19 +289,37 @@ void TorpedoControlSystem::sendUplinkTelemetry(uint64_t current_time_ms) {
 	Eigen::Matrix3f R = q.toRotationMatrix();
 	float yaw = std::atan2(R(1, 0), R(0, 0));
 
-	// 통제소 전용 업링크 패킷 (Sync 0xBB + TorpedoUplinkPayload + CRC16)
-	UplinkPacket pkt;
-	pkt.payload.timestamp_us = static_cast<uint32_t>(current_time_ms * 1000);
+	// 통제소 전용 업링크 패킷 (GenericPacket 구조 사용)
+	GenericPacket<TorpedoUplinkPayload, uint16_t> pkt;
+	pkt.header[0] = TelemetryPolicy::SYNC1;
+	pkt.header[1] = TelemetryPolicy::SYNC2;
+	pkt.msg_id = TelemetryPolicy::MSG_ID;
+	pkt.length = sizeof(TorpedoUplinkPayload);
+	
 	pkt.payload.seq = seq_counter++;
 	pkt.payload.p_x = pos.x();
 	pkt.payload.p_y = pos.y();
 	pkt.payload.yaw = yaw;
 	pkt.payload.status_flags = static_cast<uint8_t>(guidance_manager_.getPhase());
 	pkt.payload.reserved = 0;
-	pkt.finalizeCrc();
 
-	// NetworkManager를 통한 송신 (포트 충돌 방지를 위해 단일 경로 사용)
+	// CRC 계산 (Header 제외: msg_id + length + payload)
+	pkt.crc = TelemetryPolicy::calculateCrc(&pkt.msg_id, 2 + pkt.length);
+
+	// NetworkManager를 통한 송신
 	gcs_manager_.send(pkt);
+
+	// TX 로그 (1초 주기)
+	/*
+	static uint64_t last_log_ms = 0;
+	if (current_time_ms - last_log_ms >= 1000) {
+		last_log_ms = current_time_ms;
+		std::cout << "[TX Uplink] Seq: " << pkt.payload.seq 
+				  << " | Pos: (" << std::fixed << std::setprecision(2) << pkt.payload.p_x 
+				  << ", " << pkt.payload.p_y << ")" 
+				  << " | Yaw: " << std::setprecision(1) << (pkt.payload.yaw * 180.0f / 3.14159265f) << " deg" << std::endl;
+	}
+	*/
 }
 
 void TorpedoControlSystem::onStm32FeedbackReceived(const FeedbackPayload& payload, uint64_t timestamp_ms) {
