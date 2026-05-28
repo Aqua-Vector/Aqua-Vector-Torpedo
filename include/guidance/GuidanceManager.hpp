@@ -15,7 +15,7 @@ private:
 	GuidancePhaseManager gpm_;
 	PNGuidanceController pnc_;
 
-	const float DEFAULT_SPEED = 60.0f;
+	const float DEFAULT_SPEED = -60.0f;
 
 public:
 	GuidanceManager();

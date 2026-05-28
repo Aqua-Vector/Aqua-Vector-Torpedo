@@ -158,12 +158,9 @@ add_torpedo_test(test_command_routing)
 add_torpedo_test(test_async_integration)
 add_torpedo_test(test_control_station_protocol)
 
-# Hardware & Manual Tests
-add_executable(hw_test_uplink tests/hw_test_uplink.cpp)
-target_link_libraries(hw_test_uplink PRIVATE torpedo_core)
-
-add_executable(hw_test_lidar_ins_integrated tests/hw_test_lidar_ins_integrated.cpp)
-target_link_libraries(hw_test_lidar_ins_integrated PRIVATE torpedo_core)
+# ─── 7. 하드웨어 및 수동 테스트 ───
+add_executable(basic_stm32_test tests/basic_stm32_test.cpp)
+target_link_libraries(basic_stm32_test PRIVATE torpedo_core)
 
 add_executable(hw_test_stm32 tests/hw_test_stm32.cpp)
 target_link_libraries(hw_test_stm32 PRIVATE torpedo_core)
@@ -183,6 +180,12 @@ target_link_libraries(hw_test_command_pipeline PRIVATE torpedo_core)
 add_executable(hw_test_uplink tests/hw_test_uplink.cpp)
 target_link_libraries(hw_test_uplink PRIVATE torpedo_core)
 
+add_executable(hw_test_pn_guidance tests/hw_test_pn_guidance.cpp)
+target_link_libraries(hw_test_pn_guidance PRIVATE torpedo_core)
+
+add_executable(benchmark_cpu tests/benchmark_cpu.cpp)
+target_link_libraries(benchmark_cpu PRIVATE torpedo_core)
+
 add_executable(test_miniimu_uart_class tests/test_miniimu_uart_class.cpp)
 target_link_libraries(test_miniimu_uart_class PRIVATE torpedo_core)
 
@@ -201,6 +204,9 @@ target_link_libraries(test_ebimu_heading PRIVATE torpedo_core)
 add_executable(test_ebimu_odometry tests/test_ebimu_odometry.cpp)
 target_link_libraries(test_ebimu_odometry PRIVATE torpedo_core)
 
+add_executable(hw_test_lidar_ins_integrated tests/hw_test_lidar_ins_integrated.cpp)
+target_link_libraries(hw_test_lidar_ins_integrated PRIVATE torpedo_core)
+
 add_executable(integration_hil_test tests/integration_hil_test.cpp)
 target_link_libraries(integration_hil_test PRIVATE torpedo_core)
 
@@ -210,7 +216,7 @@ target_link_libraries(rs_rx PRIVATE torpedo_core)
 add_executable(rs_tx tests/TX.cpp)
 target_link_libraries(rs_tx PRIVATE torpedo_core)
 
-# ─── 7. 빌드 정보 출력 ───
+# ─── 빌드 정보 출력 ───
 message(STATUS "")
 message(STATUS "===== Aqua-Vector-Torpedo 빌드 설정 (통합) =====")
 message(STATUS "  버전:      ${PROJECT_VERSION}")
@@ -218,3 +224,4 @@ message(STATUS "  빌드 타입: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  컴파일러:  ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "  C++ 표준:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "==========================================")
+message(STATUS "")

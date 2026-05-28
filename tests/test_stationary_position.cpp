@@ -30,12 +30,16 @@ int main(int argc, char** argv) {
 
     // 1. 5초 정지 캘리브레이션
     cal.start(5.0f, 100);
+    uint64_t last_t_us = 0;
     while (!cal.is_done()) {
         torpedo::ImuSample s;
         if (imu.read(s)) {
-            cal.add_sample(s);
+            if (s.t_us != last_t_us) {
+                cal.add_sample(s);
+                last_t_us = s.t_us;
+            }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
     auto cal_res = cal.finalize();
     std::cout << "[Step 1 Done] Calibration Success: " << (cal_res.success ? "YES" : "NO") << std::endl;

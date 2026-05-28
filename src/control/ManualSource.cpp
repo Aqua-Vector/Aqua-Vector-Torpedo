@@ -8,8 +8,7 @@ bool ManualSource::fetchLatestState(ControlState& out_state, uint64_t& out_times
 void ManualSource::onControlPacketReceived(const ControlPayload& payload, uint64_t timestamp) {
 	ControlState new_state;
 
-	// Velocity is fixed to 60.0f as per system requirement
-	new_state.velocity = 60.0f;
+	new_state.velocity = payload.velocity;
 	new_state.rudder = payload.rudder;
 	new_state.elevator = payload.elevator;
 

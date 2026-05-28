@@ -51,7 +51,7 @@ template <typename Policy>
 template <typename T>
 size_t GenericParser<Policy>::serialize(const GenericPacket<T, typename Policy::CrcType>& packet, uint8_t* buffer, size_t max_len) {
 	size_t payload_size = sizeof(T);
-	size_t required_size = 4 + payload_size + sizeof(typename Policy::CrcType);
+	size_t required_size = 4 + payload_size + Policy::CRC_SIZE;
 
 	if (max_len < required_size) return 0;
 
@@ -67,7 +67,7 @@ size_t GenericParser<Policy>::serialize(const GenericPacket<T, typename Policy::
 	// Calculate CRC on [Function, Length, Payload...]
 	typename Policy::CrcType crc = Policy::calculateCrc(buffer + 2, 2 + payload_size);
 
-	for (size_t i = 0; i < sizeof(typename Policy::CrcType); ++i) {
+	for (size_t i = 0; i < Policy::CRC_SIZE; ++i) {
 		buffer[4 + payload_size + i] = static_cast<uint8_t>((crc >> (i * 8)) & 0xFF);
 	}
 
@@ -152,7 +152,7 @@ void GenericParser<Policy>::parseByte(uint8_t byte, uint64_t timestamp_ms) {
 		case ParseState::READ_CRC:
 			received_crc_ |= (static_cast<typename Policy::CrcType>(byte) << (crc_byte_count_ * 8));
 
-			if (++crc_byte_count_ >= sizeof(typename Policy::CrcType)) {
+			if (++crc_byte_count_ >= Policy::CRC_SIZE) {
 				// Verify CRC on [Function, Length, Payload...]
 				typename Policy::CrcType calculated = Policy::calculateCrc(buffer_, length_ + 2);
 				if (calculated == received_crc_) {

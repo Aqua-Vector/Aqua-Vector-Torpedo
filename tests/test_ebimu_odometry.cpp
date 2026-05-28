@@ -121,7 +121,8 @@ int main(int argc, char** argv) {
             last_fb_ts = ts;
             
             // 속도 계산 (M1, M2 평균 RPS 기반)
-            float avg_rps = (fb.m1_rps - fb.m2_rps) * 0.5f; 
+            // [수정] 커맨드 -60f가 전진이므로, RPS 결과에 -를 붙여 양수 속도로 변환
+            float avg_rps = -(fb.m1_rps - fb.m2_rps) * 0.5f; 
             float raw_speed = avg_rps * RPS_TO_MPS;
             current_speed = speed_lpf.update(raw_speed);
             

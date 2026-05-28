@@ -67,12 +67,16 @@ int main(int argc, char** argv) {
     torpedo::domain::BiasCalibrator calibrator;
     calibrator.start(5.0f, 100); // 5초, 100Hz
 
+    uint64_t last_t_us = 0;
     while (!calibrator.is_done()) {
         torpedo::ImuSample s;
         if (imu.read(s)) {
-            calibrator.add_sample(s);
+            if (s.t_us != last_t_us) {
+                calibrator.add_sample(s);
+                last_t_us = s.t_us;
+            }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
         
         static int last_sec = -1;
         int current_sec = static_cast<int>(calibrator.progress() * 5.0f);
@@ -151,8 +155,8 @@ int main(int argc, char** argv) {
             last_fb_ts = ts;
             m1_rps = fb.m1_rps;
             m2_rps = fb.m2_rps;
-            // M2가 음수로 들어오므로 차이를 구하여 평균 속도 계산 (부호 반전 고려)
-            float raw_speed = (m1_rps - m2_rps) * 0.5f * RPS_TO_MPS;
+            // [수정] 커맨드 -60f가 전진이므로, RPS 결과에 -를 붙여 양수 속도로 변환
+            float raw_speed = -(m1_rps - m2_rps) * 0.5f * RPS_TO_MPS;
             current_speed = speed_lpf.update(raw_speed);
             
             // ESKF가 계산한 정교한 쿼터니언(q)을 사용하여 위치 업데이트

@@ -66,17 +66,33 @@ bool TorpedoControlSystem::init() {
 	cal.start(5.0f, 100); // 5초, 100Hz
 
 	auto cal_start = std::chrono::steady_clock::now();
+	uint64_t last_t_us = 0;
+	int last_reported_sec = -1;
+
 	while (!cal.is_done()) {
 		torpedo::ImuSample s;
 		if (imu_.read(s)) {
-			cal.add_sample(s);
+			// 중복 데이터 방지: 타임스탬프가 새로울 때만 샘플 추가
+			if (s.t_us != last_t_us) {
+				cal.add_sample(s);
+				last_t_us = s.t_us;
+
+				// 1초 단위로 진행 상황 출력
+				int current_sec = static_cast<int>(cal.progress() * 5.0f);
+				if (current_sec != last_reported_sec) {
+					std::cout << "  [Calib] Progress: " << (current_sec + 1) << " / 5s" << std::endl;
+					last_reported_sec = current_sec;
+				}
+			}
 		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		
-		// 타임아웃 방지 (10초 이상 걸리면 중단)
+		// CPU 점유율 조절
+		std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		
+		// 타임아웃 방지 (15초 이상 걸리면 중단)
 		auto now = std::chrono::steady_clock::now();
-		if (std::chrono::duration_cast<std::chrono::seconds>(now - cal_start).count() > 10) {
-			std::cerr << "[TCS] Calibration Timeout!" << std::endl;
+		if (std::chrono::duration_cast<std::chrono::seconds>(now - cal_start).count() > 15) {
+			std::cerr << "[TCS] Calibration Timeout! (Got " << cal.finalize().samples_used << " samples)" << std::endl;
 			break;
 		}
 	}
@@ -90,12 +106,12 @@ bool TorpedoControlSystem::init() {
 			params.q0 = res.q0;
 			eskf_estimator_.init(params, 0.01f);
 			
-			std::cout << "[TCS] Calibration Successful!" << std::endl;
+			std::cout << "[TCS] Calibration Successful! (" << res.samples_used << " samples)" << std::endl;
 			std::cout << " - Bias Accel: " << bias_estimate_.b_a.transpose() << std::endl;
 			std::cout << " - Bias Gyro: " << bias_estimate_.b_g.transpose() << std::endl;
 		}
 	} else {
-		std::cerr << "[TCS] Calibration Failed!" << std::endl;
+		std::cerr << "[TCS] Calibration Failed! (Only " << cal.finalize().samples_used << " samples)" << std::endl;
 	}
 
 	std::cout << "[TCS] Initialization Successful" << std::endl;
@@ -164,7 +180,7 @@ void TorpedoControlSystem::mainLoopTask() {
 			// 여기서는 간단히 상태만 출력
 			std::cout << "[TCS Status] Mode: " << static_cast<int>(mode) 
 					  << " | Pos: (" << pos.x() << ", " << pos.y() << ")"
-					  << " | Spd: " << speed << " m/s\n";
+					  << " | Spd: " << speed << " m/s" << std::endl;
 			loop_count = 0;
 		}
 
@@ -188,7 +204,8 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 	FeedbackPayload stm_fb;
 	uint64_t stm_ts;
 	if (stm32_feedback_mb_.fetch(stm_fb, stm_ts)) {
-		float raw_speed = (stm_fb.m1_rps - stm_fb.m2_rps) * 0.5f * RPS_TO_MPS;
+		// [수정] 커맨드 -60f가 전진이므로, RPS 결과에 -를 붙여 양수 속도로 변환
+		float raw_speed = -(stm_fb.m1_rps - stm_fb.m2_rps) * 0.5f * RPS_TO_MPS;
 		float filtered_speed = speed_lpf_.update(raw_speed);
 		
 		// [수정] ESKF의 드리프트 되는 자세 대신, MiniIMU의 절대 Yaw를 사용하여 위치 적분
@@ -201,14 +218,19 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 	bool terminal_trigger = false;
 
 	if (has_gcs && (current_time_ms - gcs_ts) < 500) {
-		// [치명적 버그 수정] gcs_data.target_x는 타겟(목적지)입니다.
-		// 이것을 내 위치(lidar_pos)로 착각하여 rps_tracker를 덮어쓰면 
-		// 내 위치 == 타겟 위치가 되어 거리가 0이 되고, 유도 알고리즘이 도착한 것으로 착각해 속도를 0으로 끕니다.
 		target_pos = Eigen::Vector2f(gcs_data.target_x, gcs_data.target_y);
 		terminal_trigger = (gcs_data.flags & 0x01);
 		
-		// 실제 LiDAR 보정이 필요하다면 gcs_data.torpedo_x, torpedo_y를 사용해야 합니다.
-		// HIL 테스트 환경에서는 가상 타겟만 주고 있으므로 보정 로직을 생략합니다.
+		// [추가] GCS flags를 기반으로 모드 전환 (1: MANUAL, 2: AUTO)
+		if (gcs_data.flags == 0x01) {
+			if (mode_mux_.getMode() != SystemMode::MANUAL) {
+				mode_mux_.setMode(SystemMode::MANUAL);
+			}
+		} else if (gcs_data.flags == 0x02) {
+			if (mode_mux_.getMode() != SystemMode::AUTO) {
+				mode_mux_.setMode(SystemMode::AUTO);
+			}
+		}
 	}
 
 	// 3. 유도 알고리즘 실행 (GuidanceManager)
@@ -238,7 +260,7 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 
 	if (prev_mode != current_mode) {
 		std::cout << "[TCS] Mode Changed: " << static_cast<int>(prev_mode) << " -> " << static_cast<int>(current_mode) 
-				  << " (Last Auto Update: " << auto_source_.getMailbox()->getLastUpdateTime() << ")" << std::endl;
+				  << " (Last manual update: " << manual_source_.getMailbox()->getLastUpdateTime() << ")" << std::endl;
 	}
 
 	// 결정된 메일박스에서 제어 명령 획득
@@ -248,10 +270,6 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 		// 값 검증
 		ControlDataValidator::sanitize(target_state);
 
-		// [수정] 기존 성공한 hw_test_stm32.cpp 방식에 따라 직접 직렬화 및 송신 시도
-		// NetworkManager의 비동기 큐 대신 직접 Link를 사용하는 것은 구조상 어려우므로, 
-		// stm32_manager_.send() 내부에서 쓰이는 것과 동일한 직렬화 과정을 검증합니다.
-		
 		STMPacket stm_pkt;
 		stm_pkt.msg_id = PACKET_FUNC_CHASSIS_CTRL; 
 		stm_pkt.payload.velocity = target_state.velocity;
@@ -259,16 +277,40 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 		stm_pkt.payload.elevator = target_state.elevator;
 		
 		// NetworkManager를 통한 송신
-		stm32_manager_.send(stm_pkt);
+		if (!stm32_manager_.send(stm_pkt)) {
+			// 큐가 가득 찼을 때만 로그 (매번 찍으면 너무 많음)
+			static uint32_t drop_count = 0;
+			if (++drop_count % 100 == 1) {
+				std::cerr << "[TCS Warning] STM32 TX Queue Full! (Total drops: " << drop_count << ")" << std::endl;
+			}
+		} else {
+            // [Add] STM32 송신 성공 로그 (1초 주기로 출력하여 전송 확인)
+            static uint64_t last_stm_tx_ms = 0;
+            if (current_time_ms - last_stm_tx_ms >= 1000) {
+                std::cout << "[STM32 TX] V: " << stm_pkt.payload.velocity 
+                          << " | R: " << stm_pkt.payload.rudder 
+                          << " | E: " << stm_pkt.payload.elevator << std::endl;
+                last_stm_tx_ms = current_time_ms;
+            }
+        }
 
 		// 로컬 액추에이터 구동
 		actuator_manager_.applyControl(target_state, 0.01f);
 
-		// 디버그 로깅 강화: 실제로 계산된 값이 0인지 확인
-		if (current_time_ms % 500 < 10) {
-			std::cout << "[TCS Cmd] Target -> V: " << target_state.velocity 
+		// [수정] 100Hz 실시간 로그 출력 대신 1초(100회)에 한 번만 출력
+		static uint32_t cmd_log_count = 0;
+		if (++cmd_log_count >= 100) {
+			std::cout << "[TCS Cmd] V: " << target_state.velocity 
 					  << " | R: " << target_state.rudder 
-					  << " | Mode: " << static_cast<int>(mode_mux_.getMode()) << std::endl;
+					  << " | Mode: " << static_cast<int>(mode_mux_.getMode()) 
+					  << " | Age: " << (current_time_ms - timestamp) << "ms" << std::endl;
+			cmd_log_count = 0;
+		}
+	} else {
+		// 메일박스 fetch 실패 (이 경우는 거의 없어야 함)
+		static uint32_t fetch_fail_count = 0;
+		if (++fetch_fail_count % 100 == 1) {
+			std::cerr << "[TCS Error] Active Mailbox Fetch Failed! Mode: " << static_cast<int>(current_mode) << std::endl;
 		}
 	}
 
@@ -326,8 +368,8 @@ void TorpedoControlSystem::onStm32FeedbackReceived(const FeedbackPayload& payloa
 	stm32_feedback_mb_.update(payload, timestamp_ms);
 
 	// RPS 기반 속도 계산 (추후 RpsPositionTracker 등에서 사용 가능)
-	// (void)speed; // Silence unused warning if needed, but we keep the logic for future use
-	[[maybe_unused]] float speed = (payload.m1_rps - payload.m2_rps) * 0.5f * RPS_TO_MPS;
+	// [수정] 커맨드 -60f가 전진이므로, RPS 결과에 -를 붙여 양수 속도로 변환
+	[[maybe_unused]] float speed = -(payload.m1_rps - payload.m2_rps) * 0.5f * RPS_TO_MPS;
 	
 	// TODO: 팀원이 만든 ESKF를 수정하지 않고 속도를 반영할 별도의 Tracker를 사용할 예정입니다.
 	// 현재는 속도 업데이트를 건너뜁니다.

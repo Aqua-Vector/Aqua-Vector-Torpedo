@@ -1,5 +1,6 @@
 #include "CrcCalculator.hpp"
 
+/* CRC16 高位字节表 (Hiwonder Spec) */
 const uint8_t CrcCalculator::crc16_h_table[] = {
     0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0,
     0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41,
@@ -29,7 +30,8 @@ const uint8_t CrcCalculator::crc16_h_table[] = {
     0x80, 0x41, 0x00, 0xC1, 0x81, 0x40
 };
 
-const uint8_t CrcCalculator::crc16_l_table[256] = {
+/* CRC16 低位字节表 (Hiwonder Spec) */
+const uint8_t CrcCalculator::crc16_l_table[] = {
     0x00, 0xC0, 0xC1, 0x01, 0xC3, 0x03, 0x02, 0xC2, 0xC6, 0x06,
     0x07, 0xC7, 0x05, 0xC5, 0xC4, 0x04, 0xCC, 0x0C, 0x0D, 0xCD,
     0x0F, 0xCF, 0xCE, 0x0E, 0x0A, 0xCA, 0xCB, 0x0B, 0xC9, 0x09,
@@ -58,7 +60,8 @@ const uint8_t CrcCalculator::crc16_l_table[256] = {
     0x43, 0x83, 0x41, 0x81, 0x80, 0x40
 };
 
-const uint8_t CrcCalculator::crc8_table[256] = {
+/* CRC8 字节表 (Hiwonder Spec) */
+const uint8_t CrcCalculator::crc8_table[] = {
     0, 94, 188, 226, 97, 63, 221, 131, 194, 156, 126, 32, 163, 253, 31, 65,
     157, 195, 33, 127, 252, 162, 64, 30, 95, 1, 227, 189, 62, 96, 130, 220,
     35, 125, 159, 193, 66, 28, 254, 160, 225, 191, 93, 3, 128, 222, 60, 98,
@@ -77,17 +80,18 @@ const uint8_t CrcCalculator::crc8_table[256] = {
     116, 42, 200, 150, 21, 75, 169, 247, 182, 232, 10, 84, 215, 137, 107, 53
 };
 
-uint8_t CrcCalculator::CalculateSum(const uint8_t* buf, size_t len) {
-	uint8_t check = 0;
+uint16_t CrcCalculator::CalculateSum(const uint8_t* buf, size_t len) {
+	uint8_t check = 0u;
 	while(len--) {
 		check += *buf++;
 	}
-	return (uint8_t)(256u - check);
+	return ((uint16_t)(256u - check)) & 0x00FF;
 }
 
-uint8_t CrcCalculator::CalculateXor(const uint8_t* buf, size_t len) {
-	if (len < 2) return (len == 1) ? buf[0] : 0;
-
+uint16_t CrcCalculator::CalculateXor(const uint8_t* buf, size_t len) {
+	if (len == 0) return 0;
+	if (len == 1) return ((uint16_t)buf[0]) & 0x00FF;
+	
 	uint8_t check = *buf;
 	uint8_t temp = *(buf + 1);
 	buf += 2;
@@ -96,20 +100,19 @@ uint8_t CrcCalculator::CalculateXor(const uint8_t* buf, size_t len) {
 	while (len--) {
 		check ^= (*buf++);
 	}
-	return check;
+	return ((uint16_t)check) & 0x00FF;
 }
 
-uint8_t CrcCalculator::CalculateCrc8(const uint8_t* buf, size_t len) {
+uint16_t CrcCalculator::CalculateCrc8(const uint8_t* buf, size_t len) {
 	uint8_t check = 0;
 	while(len--) {
 		check = crc8_table[check ^ (*buf++)];
 	}
-	return check;
+	return ((uint16_t)check) & 0x00FF;
 }
 
 uint16_t CrcCalculator::CalculateCrc16(const uint8_t* buf, size_t len) {
 	int index;
-	uint16_t check = 0;
 	uint8_t crc_low = 0xFF;
 	uint8_t crc_high = 0xFF;
 
@@ -119,10 +122,7 @@ uint16_t CrcCalculator::CalculateCrc16(const uint8_t* buf, size_t len) {
 		crc_low = crc16_l_table[index];
 	}
 
-	check += crc_high;
-	check <<= 8;
-	check += crc_low;
-	return check;
+	return (static_cast<uint16_t>(crc_high) << 8) | crc_low;
 }
 
 uint16_t CrcCalculator::CalculateCrc16Ccitt(const uint8_t* buf, size_t len) {
@@ -139,4 +139,3 @@ uint16_t CrcCalculator::CalculateCrc16Ccitt(const uint8_t* buf, size_t len) {
 	}
 	return crc;
 }
-

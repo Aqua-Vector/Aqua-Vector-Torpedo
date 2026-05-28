@@ -38,16 +38,27 @@ void signalHandler(int) { g_keep_running = false; }
 class LegacyGcsParser : public IPacketParser {
 private:
     ManualSource& ms_;
-    uint8_t buffer_[128]; // 넉넉한 버퍼 크기
+    TorpedoControlSystem* tcs_ = nullptr;
+    uint8_t buffer_[128]; 
     size_t rx_idx_ = 0;
     int state_ = 0;
     uint8_t expected_length_ = 0;
+    uint64_t last_rx_time_ms_ = 0;
 
 public:
     explicit LegacyGcsParser(ManualSource& ms) : ms_(ms) {}
 
+    void setTcs(TorpedoControlSystem* tcs) { tcs_ = tcs; }
+
     // IPacketParser Interface
     void parseByte(uint8_t byte, uint64_t timestamp_ms) override {
+        // [Add] Timeout recovery: reset state if no data for 50ms
+        if (state_ != 0 && (timestamp_ms - last_rx_time_ms_) > 50) {
+            state_ = 0;
+            rx_idx_ = 0;
+        }
+        last_rx_time_ms_ = timestamp_ms;
+
         if (state_ == 0) {
             if (byte == 0xAA) { buffer_[0] = byte; state_ = 1; }
         } else if (state_ == 1) {
@@ -71,33 +82,43 @@ public:
         } else if (state_ == 4) {
             buffer_[rx_idx_++] = byte;
             
-            size_t total_expected = expected_length_ + 6; // 헤더(4) + 페이로드(len) + CRC(2)
+            size_t total_expected = expected_length_ + 6; 
             
             if (rx_idx_ >= total_expected) {
                 if (expected_length_ == sizeof(ControlStationPayload)) {
-                    // CRC 계산 범위 원복 (헤더 0xAA 0x55 포함)
                     uint16_t calc_crc = CrcCalculator::CalculateCrc16Ccitt(buffer_, total_expected - 2);
-                    
                     uint16_t received_crc = buffer_[total_expected - 2] | (buffer_[total_expected - 1] << 8);
                     
                     if (calc_crc == received_crc) {
                         ControlStationPayload payload;
                         std::memcpy(&payload, &buffer_[4], sizeof(ControlStationPayload));
                         
-                        // 500번 시퀀스 주기로 로그 출력
-                        if (payload.seq % 500 == 0) {
+                        // TCS에게 GCS 데이터 수신 알림
+                        if (tcs_) {
+                            tcs_->onGcsDataReceived(payload, timestamp_ms);
+                        }
+
+                        if (payload.seq % 100 == 0) {
                             std::cout << "\n[GCS RX Success] "
                                       << "Seq: " << payload.seq
                                       << " | Target: (" << payload.target_x << ", " << payload.target_y << ")"
                                       << " | Torpedo: (" << payload.torpedo_x << ", " << payload.torpedo_y << ")"
-                                      << " | Steer: " << payload.steer << std::endl;
+                                      << " | Steer: " << payload.steer 
+                                      << " | Flags: 0x" << std::hex << static_cast<int>(payload.flags) << std::dec << std::endl;
                         }
 
                         ControlPayload cmd;
                         cmd.velocity = 60.0f; 
-                        cmd.rudder = static_cast<float>(payload.steer);
+                        cmd.rudder = -1.0f * static_cast<float>(payload.steer);
                         cmd.elevator = 0.0f;
                         ms_.onControlPacketReceived(cmd, timestamp_ms);
+                    } else {
+                        // CRC 에러 로그 추가
+                        static uint32_t crc_err_count = 0;
+                        if (++crc_err_count % 10 == 1) {
+                            std::cerr << "\n[GCS CRC ERR] Recv: 0x" << std::hex << received_crc 
+                                      << " | Calc: 0x" << calc_crc << " (Count: " << std::dec << crc_err_count << ")" << std::endl;
+                        }
                     }
                 }
                 state_ = 0; rx_idx_ = 0;
@@ -111,24 +132,25 @@ public:
         size_t payload_size = sizeof(TorpedoUplinkPayload);
         size_t total_size = 4 + payload_size + 2;
         if (max_len < total_size) return 0;
-        
+
         std::memcpy(buf, &pkt, total_size);
 
-        // Raw Hex Dump Log
-        /*
-        std::cout << "\n[TX Raw] ";
-        for (size_t i = 0; i < total_size; ++i) {
-            std::printf("%02X ", buf[i]);
+        // GCS TX 로그 일시 중단
+        if (pkt.payload.seq % 10 == 0) {
+            std::cout << "\n[GCS TX Uplink] "
+                      << "Seq: " << pkt.payload.seq
+                      << " | Pos: (" << std::fixed << std::setprecision(2) << pkt.payload.p_x << ", " << pkt.payload.p_y << ")"
+                      << " | Yaw: " << (pkt.payload.yaw * 180.0f / 3.14159265f) << " deg"
+                      << " | Status: 0x" << std::hex << static_cast<int>(pkt.payload.status_flags) << std::dec << std::endl;
         }
-        std::cout << std::endl;
-        */
+        
 
         return total_size;
     }
 };
 
 /**
- * @brief STM32 Feedback Handler (Matches main.cpp)
+ * @brief STM32 Feedback Handler
  */
 class Stm32FeedbackHandler : public IMessageHandler {
 private:
@@ -187,11 +209,10 @@ int main() {
     ModeMux mux(manual_source.getMailbox(), auto_source.getMailbox());
 
     // 4. Parsers
-    // GCS: Custom parser to handle the specific CRC range, but inside NM framework
     LegacyGcsParser gcs_parser(manual_source);
     STMControlParser stm_parser;
 
-    // 5. Network Managers (Now using standard NM with StaticRingBuffer internally)
+    // 5. Network Managers
     NetworkManager<LegacyGcsParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
@@ -211,6 +232,7 @@ int main() {
 
     // 8. Torpedo Control System
     TorpedoControlSystem tcs(mux, am, manual_source, auto_source, imu, eskf, rps_tracker, gcs_nm, stm_nm);
+    gcs_parser.setTcs(&tcs);
 
     // 9. Register STM32 Handler
     Stm32FeedbackHandler stm_handler(tcs);
@@ -223,12 +245,11 @@ int main() {
         return -1;
     }
 
-    // Seed Manual Mode
+    // Seed Manual Mode AFTER init
     manual_source.onControlPacketReceived({60.0f, 0, 0}, utils::getCurrentTimeMs());
     mux.setMode(SystemMode::MANUAL);
 
     tcs.start();
-    // [NM Framework] Now starting NM threads which use StaticRingBuffer and their own RX threads
     gcs_nm.start(); 
     stm_nm.start();
     
@@ -236,16 +257,14 @@ int main() {
 
     // 11. Real-time Monitoring Loop
     std::cout << "[Step 3] Monitoring Pipeline & Uplink (Press Ctrl+C to stop)" << std::endl;
-    std::cout << "  - GCS Uplink: Sending TorpedoUplinkPayload (GenericPacket Format)" << std::endl;
-    std::cout << "  - MsgID: 0x40, Sync: 0xAA 0x55, CRC: CCITT (MsgID+Len+Payload)" << std::endl;
     
     std::cout << "\n" << std::left << std::setw(6) << "Mode" 
               << std::setw(7) << "V_Cmd" << std::setw(7) << "R_Cmd" 
               << std::setw(10) << "Age" 
+              << std::setw(15) << "RPS(M1/M2)"
               << std::setw(12) << "Uplink" << std::endl;
-    std::cout << "----------------------------------------------------------------" << std::endl;
+    std::cout << "--------------------------------------------------------------------------------" << std::endl;
 
-    uint32_t uplink_count = 0;
     while (g_keep_running) {
         ControlState current_cmd;
         uint64_t last_ts;
@@ -253,11 +272,10 @@ int main() {
         uint64_t now = utils::getCurrentTimeMs();
         uint64_t age = (last_ts > 0) ? (now - last_ts) : 9999;
 
-        // [Monitoring] TCS 내부 스레드에서 전송되는 데이터를 관찰하기 위해 상태 출력만 수행
+        float speed = rps_tracker.getSpeed();
         const auto& pos = rps_tracker.getPosition();
         const auto& q = eskf.state().q;
         
-        // Quaternion to Yaw (Z-axis rotation)
         float yaw = std::atan2(2.0f * (q.w() * q.z() + q.x() * q.y()), 
                                1.0f - 2.0f * (q.y() * q.y() + q.z() * q.z()));
         float yaw_deg = yaw * 180.0f / 3.14159265f;
@@ -267,8 +285,9 @@ int main() {
                   << std::setw(7) << std::fixed << std::setprecision(1) << current_cmd.velocity
                   << std::setw(7) << current_cmd.rudder
                   << std::setw(10) << std::dec << age << "ms"
-                  << " | P:(" << std::fixed << std::setprecision(2) << pos.x() << "," << pos.y() << ")"
-                  << " Y:" << std::setw(6) << yaw_deg << " | UPLINK ACTIVE" << std::flush;
+                  << " RPS:" << std::setw(10) << std::fixed << std::setprecision(2) << speed / 0.22f 
+                  << " | P:(" << pos.x() << "," << pos.y() << ")"
+                  << " Y:" << std::setw(6) << yaw_deg << std::flush;
 
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }

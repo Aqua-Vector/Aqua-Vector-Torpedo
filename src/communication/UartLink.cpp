@@ -68,7 +68,7 @@ bool UartLink::initialize() {
 	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
 	
 	options.c_cc[VMIN]  = 0;
-	options.c_cc[VTIME] = 1;
+	options.c_cc[VTIME] = 0;
 
 	tcflush(fd_, TCIOFLUSH);
 	if (tcsetattr(fd_, TCSANOW, &options) != 0) {
@@ -98,17 +98,7 @@ ssize_t UartLink::send(const uint8_t* data, size_t length) {
 
 ssize_t UartLink::receive(uint8_t* buffer, size_t max_length) {
 	if (fd_ == -1) return -1;
-	ssize_t bytes_read = read(fd_, buffer, max_length);
-	
-	if (bytes_read < 0) {
-		// In non-blocking mode, return 0 if no data is available
-		if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			return 0;
-		}
-		return -1;
-	}
-	
-	return bytes_read;
+	return read(fd_, buffer, max_length);
 }
 
 int UartLink::get_baud_constant(int baudrate) {
@@ -124,3 +114,4 @@ int UartLink::get_baud_constant(int baudrate) {
 		default:     return B115200;
 	}
 }
+

@@ -22,11 +22,11 @@ struct ControlState {
 };
 
 // 시스템 제어 모드
-enum class SystemMode {
-	MANUAL,
-	AUTO,
-	FAILSAFE,
-	LOCKDOWN
+enum class SystemMode : uint8_t {
+    MANUAL = 0x01,
+    AUTO = 0x02,
+    FAILSAFE = 0x03,
+    LOCKDOWN = 0x04
 };
 
 #endif /* CONTROL_TYPES_HPP_ */

@@ -11,9 +11,9 @@ private:
 	static const uint8_t crc8_table[256];
 
 public:
-	static uint8_t CalculateSum(const uint8_t* buf, size_t len);
-	static uint8_t CalculateXor(const uint8_t* buf, size_t len);
-	static uint8_t CalculateCrc8(const uint8_t* buf, size_t len);
+	static uint16_t CalculateSum(const uint8_t* buf, size_t len);
+	static uint16_t CalculateXor(const uint8_t* buf, size_t len);
+	static uint16_t CalculateCrc8(const uint8_t* buf, size_t len);
 	static uint16_t CalculateCrc16(const uint8_t* buf, size_t len);
 	static uint16_t CalculateCrc16Ccitt(const uint8_t* buf, size_t len);
 };
