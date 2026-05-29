@@ -23,15 +23,23 @@ void BiasCalibrator::add_sample(const ImuSample& s) {
         return;
     }
     
-    // Quaternion + body accel 누적 (변환은 finalize에서)
+    // Quaternion 누적 (q_start 계산용)
     qw_sum_ += s.qw;
     qx_sum_ += s.qx;
     qy_sum_ += s.qy;
     qz_sum_ += s.qz;
     
-    ax_nav_sum_ += s.ax;  // 사실은 body sum
-    ay_nav_sum_ += s.ay;
-    az_nav_sum_ += s.az;
+    // ★ Body → Nav 변환 후 누적 (진짜 Nav frame!) ★
+    // EBIMU quaternion으로 절대 nav frame 변환
+    // → IMU 기울어짐도 quaternion에 반영되어 보정됨
+    Eigen::Quaternionf q(s.qw, s.qx, s.qy, s.qz);
+    q.normalize();
+    Eigen::Vector3f a_body(s.ax, s.ay, s.az);
+    Eigen::Vector3f a_nav = q.toRotationMatrix() * a_body;
+    
+    ax_nav_sum_ += a_nav(0);
+    ay_nav_sum_ += a_nav(1);
+    az_nav_sum_ += a_nav(2);
     n_++;
 }
 
@@ -48,7 +56,7 @@ BiasCalibration BiasCalibrator::finalize() {
     
     float inv_n = 1.0f / static_cast<float>(n_);
     
-    // 1. 평균 quaternion (시작 자세)
+    // 1. 평균 quaternion (시작 자세, 정렬용)
     float qw_avg = qw_sum_ * inv_n;
     float qx_avg = qx_sum_ * inv_n;
     float qy_avg = qy_sum_ * inv_n;
@@ -65,32 +73,17 @@ BiasCalibration BiasCalibrator::finalize() {
     result.q_start_y = qy_avg / norm;
     result.q_start_z = qz_avg / norm;
     
-    // 2. 평균 body accel
-    float ax_body_avg = ax_nav_sum_ * inv_n;
-    float ay_body_avg = ay_nav_sum_ * inv_n;
-    float az_body_avg = az_nav_sum_ * inv_n;
+    // 2. Nav frame 가속도 평균
+    float ax_nav_mean = ax_nav_sum_ * inv_n;
+    float ay_nav_mean = ay_nav_sum_ * inv_n;
+    float az_nav_mean = az_nav_sum_ * inv_n;
     
-    // 3. 평균 quaternion으로 body → q_start frame 변환
-    //    (시작 자세에서는 q_rel = I → body = q_start frame nav)
-    //    실제로 q_avg ≈ q_start 이므로
-    //    R(q_avg⁻¹ × q_avg) = R(I) = I
-    //    → 변환된 nav = body 그대로
-    //    
-    //    정지 시 q_start frame nav 가속도 = (0, 0, g)
-    //    → bias = body 평균 - (0, 0, g)
-    //
-    //    근데 body가 약간 기울어진 거면?
-    //    → 평균 body가 (0, 0, g) 아닐 수도
-    //    → 평균 R도 약간 회전
-    //    → R_rel × body_avg = (0, 0, g)에 가까움
-    
-    // 깨끗하게: q_rel = q_start.conjugate() × q_avg = I (정확히)
-    // → R(I) × body_avg = body_avg
-    // → bias = body_avg - (0, 0, g)
-    
-    result.bx = ax_body_avg;
-    result.by = ay_body_avg;
-    result.bz = az_body_avg - g_;
+    // 3. 정지 시 Nav frame 가속도 = (0, 0, g) 가 정상
+    //    차이 = 진짜 bias (절대 nav frame)
+    //    → IMU 기울어짐은 quaternion이 보정 → bias 작아야
+    result.bx = ax_nav_mean;
+    result.by = ay_nav_mean;
+    result.bz = az_nav_mean - g_;
     
     result.valid = true;
     return result;

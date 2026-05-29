@@ -25,21 +25,22 @@ void Eskf::predict(const ImuSample& s, const BiasCalibration& bias, float dt) {
     if (!initialized_) return;
     if (dt <= 0.0f || dt > 1.0f) return;
     
-    // q_rel = q_start⁻¹ × q_abs
+    // ★ 절대 nav frame 변환 (q_abs) ★
+    // bias도 절대 nav frame (R(q_abs))이므로 frame 일치!
+    // RC카/IMU 기울어짐은 q_abs에 반영 → nav frame에서 자동 보정
     Eigen::Quaternionf q_abs(s.qw, s.qx, s.qy, s.qz);
     q_abs.normalize();
-    Eigen::Quaternionf q_start(bias.q_start_w, bias.q_start_x,
-                                bias.q_start_y, bias.q_start_z);
-    q_start.normalize();
-    Eigen::Quaternionf q_rel = q_start.conjugate() * q_abs;
-    Eigen::Matrix3f R = q_rel.toRotationMatrix();
+    Eigen::Matrix3f R = q_abs.toRotationMatrix();
     
     Eigen::Vector3f a_body(s.ax, s.ay, s.az);
     Eigen::Vector3f a_nav = R * a_body;
     
+    // Bias 제거 (절대 nav frame)
     a_nav(0) -= bias.bx;
     a_nav(1) -= bias.by;
     a_nav(2) -= bias.bz;
+    
+    // 중력 제거 (절대 nav frame, Z up)
     a_nav(2) -= GRAVITY;
     
     Eigen::Vector3f p = x_.head<3>();
@@ -97,38 +98,15 @@ bool Eskf::update_lidar(float px_meas, float py_meas) {
 bool Eskf::update_zupt() {
     if (!initialized_) return false;
     
-    // ZUPT: 속도 = 0 measurement
-    // z = (0, 0, 0)^T
-    // H = [0 0 0 1 0 0]
-    //     [0 0 0 0 1 0]
-    //     [0 0 0 0 0 1]   (속도만 측정)
+    // Hard reset 방식
+    x_.segment<3>(3).setZero();
     
-    Eigen::Matrix<float, 3, 6> H = Eigen::Matrix<float, 3, 6>::Zero();
-    H(0, 3) = 1.0f;
-    H(1, 4) = 1.0f;
-    H(2, 5) = 1.0f;
-    
-    // R_zupt: 1cm/s 정확도 가정
     const float sigma_v = 0.01f;
     const float sigma_v_sq = sigma_v * sigma_v;
-    Eigen::Matrix3f R_zupt = sigma_v_sq * Eigen::Matrix3f::Identity();
+    P_.block<3, 3>(3, 3) = sigma_v_sq * Eigen::Matrix3f::Identity();
     
-    // Innovation: y = 0 - H*x = -v
-    Eigen::Vector3f v_current = x_.segment<3>(3);
-    Eigen::Vector3f y = -v_current;
-    
-    // S = H*P*H^T + R
-    Eigen::Matrix3f S = H * P_ * H.transpose() + R_zupt;
-    
-    // K = P*H^T*S^-1
-    Eigen::Matrix<float, 6, 3> K = P_ * H.transpose() * S.inverse();
-    
-    // State update
-    x_ = x_ + K * y;
-    
-    // Covariance update
-    Mat6 I_KH = Mat6::Identity() - K * H;
-    P_ = I_KH * P_;
+    P_.block<3, 3>(0, 3).setZero();
+    P_.block<3, 3>(3, 0).setZero();
     
     return true;
 }
