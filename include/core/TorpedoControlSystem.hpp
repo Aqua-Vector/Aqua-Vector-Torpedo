@@ -75,7 +75,7 @@ private:
 	const float WHEEL_RADIUS = 0.0325f; 
 	const float RPS_TO_MPS = 2.0f * 3.14159265f * WHEEL_RADIUS;
 	const float WHEEL_BASE = 0.170f; 
-	const float STEERING_SCALE_FACTOR = 0.55f; // [Add] Yaw 누적 속도 조절을 위한 보정 계수 (2.2배 과적분 방지)
+	const float STEERING_SCALE_FACTOR = 0.3f; // [Add] Yaw 누적 속도 조절을 위한 보정 계수 (2.2배 과적분 방지)
 
 	// 스레드 및 상태 관리
 	std::atomic<bool> is_running_;
