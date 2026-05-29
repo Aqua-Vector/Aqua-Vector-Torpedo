@@ -125,9 +125,14 @@ bool Ism330dhcxImu::read(ImuSample& out) {
     out.gx = gx_raw * gyro_sens_;
     out.gy = gy_raw * gyro_sens_;
     out.gz = gz_raw * gyro_sens_;
-    
+
+    out.roll  = 0.0f;
+    out.pitch = 0.0f;
+    out.yaw   = 0.0f;
+
     out.t_us = SystemClock().now_us();  // ← torpedo::hal:: 떼고 그냥 SystemClock
     out.valid = true;
+
     
     return true;
 }

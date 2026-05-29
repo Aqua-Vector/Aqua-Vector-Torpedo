@@ -26,6 +26,7 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <thread>
 
 namespace torpedo {
 

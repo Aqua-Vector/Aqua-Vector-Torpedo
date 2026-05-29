@@ -1,3 +1,4 @@
+
 # CMakeLists.txt — Aqua-Vector-Torpedo
 #
 # 어뢰 시스템 통합 빌드 설정 (INS + 통신 + 제어)
@@ -125,6 +126,13 @@ add_executable(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME} PRIVATE torpedo_core)
 
+# 추가적인 메인 실행 파일 (MainLoop 기반)
+add_executable(torpedo_app
+    src/app/main.cpp
+    src/app/main_loop.cpp
+)
+target_link_libraries(torpedo_app PRIVATE torpedo_core)
+
 # ─── 5. 단위 테스트 설정 (CTest) ───
 enable_testing()
 
@@ -144,6 +152,19 @@ add_torpedo_test(test_tcs)
 add_torpedo_test(test_command_routing)
 add_torpedo_test(test_async_integration)
 add_torpedo_test(test_control_station_protocol)
+add_torpedo_test(test_bias_calibrator)
+add_torpedo_test(test_crc16)
+add_torpedo_test(test_eskf_estimator_compile)
+add_torpedo_test(test_eskf_integrated_cycle)
+add_torpedo_test(test_eskf_predict_p_growth)
+add_torpedo_test(test_eskf_predict_stationary)
+add_torpedo_test(test_eskf_predict_yaw_rotation)
+add_torpedo_test(test_eskf_update_lidar)
+add_torpedo_test(test_eskf_update_nhc)
+add_torpedo_test(test_integration_sim)
+add_torpedo_test(test_ism330dhcx_compile)
+add_torpedo_test(test_packet_io)
+add_torpedo_test(test_rs485_port)
 
 # ─── 6. 하드웨어 및 수동 테스트 (테스트 실행 목록에는 제외) ───
 add_executable(basic_stm32_test tests/basic_stm32_test.cpp)

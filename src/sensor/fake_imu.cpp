@@ -18,6 +18,9 @@ bool FakeImu::read(ImuSample& out) {
     out.gx = 0.0f;
     out.gy = 0.0f;
     out.gz = 0.0f;
+    out.roll = 0.0f;
+    out.pitch = 0.0f;
+    out.yaw = 0.0f;
     out.valid = true;
     return true;
 }
