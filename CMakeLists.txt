@@ -33,6 +33,7 @@ set(CORE_SOURCES
     src/domain/bias_calibrator.cpp
     src/domain/eskf.cpp
     src/domain/zupt_detector.cpp
+    src/app/lidar_aided_ins.cpp        # 추가: LiDAR 보정 INS 조립 계층 (버전 1)
 )
 
 add_library(ebimu_core STATIC ${CORE_SOURCES})
@@ -62,6 +63,7 @@ add_ebimu_test(test_imu_sample)
 add_ebimu_test(test_ebimu_parser)
 add_ebimu_test(test_bias_calibrator)
 add_ebimu_test(test_eskf)
+add_ebimu_test(test_lidar_aided_ins)   # 추가: 버전 1 통합 검증
 
 
 message(STATUS "")
@@ -83,6 +85,5 @@ add_executable(test_quat_check src/test_quat_check.cpp)
 target_link_libraries(test_quat_check PRIVATE ebimu_core)
 add_executable(test_axis_id src/test_axis_id.cpp)
 target_link_libraries(test_axis_id PRIVATE ebimu_core)
-target_link_libraries(test_bias_live PRIVATE ebimu_core)
 add_executable(test_ins_detail_live src/test_ins_detail_live.cpp)
 target_link_libraries(test_ins_detail_live PRIVATE ebimu_core)
