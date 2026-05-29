@@ -1,0 +1,217 @@
+# CMakeLists.txt — Aqua-Vector-Torpedo
+#
+# 어뢰 시스템 통합 빌드 설정 (INS + 통신 + 제어)
+# - torpedo_core: 핵심 라이브러리 (모든 비즈니스 로직 및 센서)
+# - Aqua-Vector-Torpedo: 메인 실행 파일 (Zynq 타겟)
+# - 단위 테스트: ctest 지원
+
+cmake_minimum_required(VERSION 3.16)
+
+project(Aqua-Vector-Torpedo VERSION 1.0.0 LANGUAGES CXX)
+
+# ─── 1. C++ 표준 및 컴파일 옵션 ───
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+add_compile_options(-Wall -Wextra -Wpedantic -Wno-poison-system-directories)
+
+# 기본 빌드 타입 = Release
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# ─── 2. 의존성 패키지 찾기 (Threads & Eigen3) ───
+# POSIX Threads 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+# Eigen3
+find_package(Eigen3 3.3 QUIET NO_MODULE)
+
+if(NOT Eigen3_FOUND)
+    find_path(EIGEN3_INCLUDE_DIR
+        NAMES Eigen/Dense
+        PATHS
+            /usr/include/eigen3
+            /usr/local/include/eigen3
+            $ENV{HOME}/eigen3
+            /home/petalinux/eigen3
+        DOC "Eigen3 헤더 경로"
+    )
+    
+    if(NOT EIGEN3_INCLUDE_DIR)
+        message(FATAL_ERROR "Eigen3 못 찾음. sudo apt install libeigen3-dev 또는 -DEIGEN3_INCLUDE_DIR 옵션 필요")
+    endif()
+    message(STATUS "Eigen3 발견: ${EIGEN3_INCLUDE_DIR}")
+endif()
+
+# ─── 3. 핵심 라이브러리 (torpedo_core) ───
+# 메인 함수(main.cpp)를 제외한 모든 소스 코드를 라이브러리로 묶습니다
+set(CORE_SOURCES
+    src/hal/system_clock.cpp
+    src/sensor/fake_imu.cpp
+    src/sensor/ism330dhcx_imu.cpp
+    src/sensor/imu_downsampler.cpp
+    src/sensor/MiniImuUart.cpp
+    src/comm/spidev.cpp
+    src/comm/rs485_port.cpp
+    src/comm/packet_io.cpp
+    src/comm/crc16.cpp
+    src/domain/estimator/eskf_estimator.cpp
+    src/domain/estimator/bias_calibrator.cpp
+    
+    # -- 통신/유틸리티 --
+    src/communication/UartLink.cpp
+    src/communication/UdpLink.cpp
+    src/protocol/Marshaller.cpp
+    src/utils/BufferView.cpp
+    src/utils/CrcCalculator.cpp
+
+    # -- 제어 파트 --
+    src/core/TorpedoControlSystem.cpp
+    src/control/ModeMux.cpp
+    src/control/ManualSource.cpp
+    src/control/AutoSource.cpp
+    src/control/ControlDataValidator.cpp
+    src/actuator/ActuatorManager.cpp
+    src/actuator/ServoMotor.cpp
+    src/hal/LinuxPwmChannel.cpp
+
+    # -- 유도/추정 --
+    src/guidance/GuidanceManager.cpp
+    src/guidance/GuidancePhaseManager.cpp
+    src/guidance/PNGuidanceController.cpp
+    src/guidance/TargetStateEstimator.cpp
+    src/guidance/EbImuUart.cpp
+)
+
+add_library(torpedo_core STATIC ${CORE_SOURCES})
+
+# Include 디렉토리 설정 (모든 하위 디렉토리를 포함하여 경로 없이 include 가능하게 함)
+target_include_directories(torpedo_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/hal
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/protocol
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/control
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/utils
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/actuator
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/communication
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/guidance
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/sensor
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/hal
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/domain
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/domain/estimator
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/torpedo/comm
+)
+
+# 라이브러리 링크 (Eigen, Pthread, Atomic)
+target_link_libraries(torpedo_core PUBLIC Threads::Threads atomic)
+
+if(TARGET Eigen3::Eigen)
+    target_link_libraries(torpedo_core PUBLIC Eigen3::Eigen)
+else()
+    target_include_directories(torpedo_core PUBLIC ${EIGEN3_INCLUDE_DIR})
+endif()
+
+# ─── 4. 메인 실행 파일 ───
+add_executable(${PROJECT_NAME} 
+    src/main.cpp
+)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE torpedo_core)
+
+# ─── 5. 단위 테스트 설정 (CTest) ───
+enable_testing()
+
+function(add_torpedo_test name)
+    add_executable(${name} tests/${name}.cpp)
+    # 테스트 바이너리에도 torpedo_core와 pthread가 자동으로 링크됨
+    target_link_libraries(${name} PRIVATE torpedo_core)
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+add_torpedo_test(test_iimu_compile)
+add_torpedo_test(test_imu_downsampler)
+add_torpedo_test(test_eskf_state)
+add_torpedo_test(test_actuator)
+add_torpedo_test(test_mux)
+add_torpedo_test(test_tcs)
+add_torpedo_test(test_command_routing)
+add_torpedo_test(test_async_integration)
+add_torpedo_test(test_control_station_protocol)
+
+# ─── 6. 하드웨어 및 수동 테스트 (테스트 실행 목록에는 제외) ───
+add_executable(basic_stm32_test tests/basic_stm32_test.cpp)
+target_link_libraries(basic_stm32_test PRIVATE torpedo_core)
+
+add_executable(hw_test_stm32 tests/hw_test_stm32.cpp)
+target_link_libraries(hw_test_stm32 PRIVATE torpedo_core)
+
+add_executable(test_stm_feedback tests/test_stm_feedback.cpp)
+target_link_libraries(test_stm_feedback PRIVATE torpedo_core)
+
+add_executable(hw_test_control_station tests/hw_test_control_station.cpp)
+target_link_libraries(hw_test_control_station PRIVATE torpedo_core)
+
+add_executable(hw_test_integration_rc_car tests/hw_test_integration_rc_car.cpp)
+target_link_libraries(hw_test_integration_rc_car PRIVATE torpedo_core)
+
+add_executable(hw_test_command_pipeline tests/hw_test_command_pipeline.cpp)
+target_link_libraries(hw_test_command_pipeline PRIVATE torpedo_core)
+
+add_executable(hw_test_uplink tests/hw_test_uplink.cpp)
+target_link_libraries(hw_test_uplink PRIVATE torpedo_core)
+
+add_executable(hw_test_rps_accuracy tests/hw_test_rps_accuracy.cpp)
+target_link_libraries(hw_test_rps_accuracy PRIVATE torpedo_core)
+
+add_executable(hw_test_pn_guidance tests/hw_test_pn_guidance.cpp)
+target_link_libraries(hw_test_pn_guidance PRIVATE torpedo_core)
+
+add_executable(benchmark_cpu tests/benchmark_cpu.cpp)
+target_link_libraries(benchmark_cpu PRIVATE torpedo_core)
+
+add_executable(test_miniimu_uart_class tests/test_miniimu_uart_class.cpp)
+target_link_libraries(test_miniimu_uart_class PRIVATE torpedo_core)
+
+add_executable(test_imu_heading_log tests/test_imu_heading_log.cpp)
+target_link_libraries(test_imu_heading_log PRIVATE torpedo_core)
+
+add_executable(test_stationary_position tests/test_stationary_position.cpp)
+target_link_libraries(test_stationary_position PRIVATE torpedo_core)
+
+add_executable(test_dynamic_position_rps tests/test_dynamic_position_rps.cpp)
+target_link_libraries(test_dynamic_position_rps PRIVATE torpedo_core)
+
+add_executable(test_ebimu_heading tests/test_ebimu_heading.cpp)
+target_link_libraries(test_ebimu_heading PRIVATE torpedo_core)
+
+add_executable(test_ebimu_odometry tests/test_ebimu_odometry.cpp)
+target_link_libraries(test_ebimu_odometry PRIVATE torpedo_core)
+
+add_executable(test_rps_position_accuracy tests/test_rps_position_accuracy.cpp)
+target_link_libraries(test_rps_position_accuracy PRIVATE torpedo_core)
+
+add_executable(integration_hil_test tests/integration_hil_test.cpp)
+target_link_libraries(integration_hil_test PRIVATE torpedo_core)
+
+add_executable(rs_rx tests/RX.cpp)
+target_link_libraries(rs_rx PRIVATE torpedo_core)
+
+add_executable(rs_tx tests/TX.cpp)
+target_link_libraries(rs_tx PRIVATE torpedo_core)
+
+# ─── 7. 빌드 정보 출력 ───
+message(STATUS "")
+message(STATUS "===== Aqua-Vector-Torpedo 빌드 설정 =====")
+message(STATUS "  버전:      ${PROJECT_VERSION}")
+message(STATUS "  빌드 타입: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  컴파일러:  ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "  C++ 표준:  ${CMAKE_CXX_STANDARD}")
+message(STATUS "==========================================")
+message(STATUS "")
