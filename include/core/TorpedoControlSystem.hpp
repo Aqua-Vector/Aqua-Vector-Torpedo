@@ -55,6 +55,8 @@ private:
 	torpedo::domain::RpsPositionTracker& rps_tracker_;
 	torpedo::domain::BiasEstimate bias_estimate_;
 	float latest_imu_yaw_ = 0.0f;
+	float latest_steering_yaw_ = 0.0f;     // Instantaneous steering angle (deg)
+	float cumulative_yaw_rad_ = 0.0f;      // Integrated global yaw (rad)
 
 	// LPF 필터 (속도 및 헤딩)
 	utils::LowPassFilter speed_lpf_{0.2f};
@@ -69,12 +71,16 @@ private:
 	Mailbox<FeedbackPayload> stm32_feedback_mb_;
 
 	// 물리 상수
-	const float WHEEL_RADIUS = 0.035f; // 35mm
+	// [수정] 바퀴 지름 65.0mm -> 반지름 32.5mm (0.0325m)
+	const float WHEEL_RADIUS = 0.0325f; 
 	const float RPS_TO_MPS = 2.0f * 3.14159265f * WHEEL_RADIUS;
+	const float WHEEL_BASE = 0.170f; 
+	const float STEERING_SCALE_FACTOR = 0.55f; // [Add] Yaw 누적 속도 조절을 위한 보정 계수 (2.2배 과적분 방지)
 
 	// 스레드 및 상태 관리
 	std::atomic<bool> is_running_;
 	std::thread main_thread_;
+	uint64_t last_feedback_time_us_ = 0; // [Add] 정확한 dt 계산용
 
 	// 타이밍 설정
 	const uint32_t loop_period_us_ = 10000;
@@ -103,8 +109,9 @@ public:
 
 	/**
 	 * @brief 시스템 초기화 (하드웨어 및 통신 링크 점검)
+	 * @param skip_calibration true일 경우 5초간의 IMU 정지 캘리브레이션을 건너뜀
 	 */
-	bool init();
+	bool init(bool skip_calibration = false);
 
 	/**
 	 * @brief 메인 제어 루프 시작
@@ -120,6 +127,21 @@ public:
 	 * @brief 시스템 실행 상태 확인
 	 */
 	bool isRunning() const { return is_running_.load(); }
+
+	/**
+	 * @brief 최신 조향각(피드백 기반) 가져오기
+	 */
+	float getLatestSteeringYaw() const { return latest_steering_yaw_; }
+
+	/**
+	 * @brief 최신 피드백 수신 시각(ms) 가져오기
+	 */
+	uint64_t getLatestFeedbackTime() const { return stm32_feedback_mb_.getLastUpdateTime(); }
+
+	/**
+	 * @brief 루프 실행 시간(us) 가져오기
+	 */
+	uint32_t getLoopElapsedUs() const { return last_loop_elapsed_us_.load(); }
 
 	/**
 	 * @brief STM32로부터 피드백 수신 콜백
@@ -147,6 +169,8 @@ private:
 	 * @brief 통제소로 좌표 정보 직접 송신 (10Hz)
 	 */
 	void sendUplinkTelemetry(uint64_t current_time_ms);
+
+	std::atomic<uint32_t> last_loop_elapsed_us_{0};
 };
 
 #endif /* TORPEDO_CONTROL_SYSTEM_HPP_*/

@@ -180,6 +180,9 @@ target_link_libraries(hw_test_command_pipeline PRIVATE torpedo_core)
 add_executable(hw_test_uplink tests/hw_test_uplink.cpp)
 target_link_libraries(hw_test_uplink PRIVATE torpedo_core)
 
+add_executable(hw_test_rps_accuracy tests/hw_test_rps_accuracy.cpp)
+target_link_libraries(hw_test_rps_accuracy PRIVATE torpedo_core)
+
 add_executable(hw_test_pn_guidance tests/hw_test_pn_guidance.cpp)
 target_link_libraries(hw_test_pn_guidance PRIVATE torpedo_core)
 

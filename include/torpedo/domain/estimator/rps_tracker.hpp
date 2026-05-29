@@ -14,15 +14,17 @@ class RpsPositionTracker {
 private:
     Eigen::Vector3f position_;
     float last_speed_ = 0.0f;
+    float odometer_ = 0.0f;
 
 public:
-    RpsPositionTracker() : position_(Eigen::Vector3f::Zero()) {}
+    RpsPositionTracker() : position_(Eigen::Vector3f::Zero()), odometer_(0.0f) {}
 
     /**
      * @brief 위치 초기화
      */
     void reset(const Eigen::Vector3f& p0 = Eigen::Vector3f::Zero()) {
         position_ = p0;
+        odometer_ = 0.0f;
     }
 
     /**
@@ -32,19 +34,24 @@ public:
      * @param dt 경과 시간 (s)
      */
     void update(float speed, const Eigen::Quaternionf& q, float dt) {
-        // Body frame 전진 속도 벡터
-        Eigen::Vector3f v_body(speed, 0.0f, 0.0f);
-        
+        // Body frame 전진 속도 벡터 (사용자 요청: Y축이 전진축)
+        Eigen::Vector3f v_body(0.0f, speed, 0.0f);
+
         // Nav frame으로 변환
         Eigen::Vector3f v_nav = q * v_body;
-        
+
         // 위치 적분 (단순 오일러 적분)
         position_ += v_nav * dt;
+
+        // 누적 주행 거리 업데이트 (속력의 절대값을 시간 적분)
+        odometer_ += std::abs(speed) * dt;
+
         last_speed_ = speed;
     }
 
     const Eigen::Vector3f& getPosition() const { return position_; }
     float getSpeed() const { return last_speed_; }
+    float getOdometer() const { return odometer_; }
 };
 
 } // namespace torpedo::domain

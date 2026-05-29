@@ -15,7 +15,8 @@ float PNGuidanceController::calculateSteering(const torpedo::domain::EskfState& 
 	if (dt <= 0.0f) return 0.0f;
 
 	Eigen::Matrix3f R = my_state.q.toRotationMatrix();
-	float my_yaw = std::atan2(R(1,0), R(0,0));
+	// [수정] Y축이 전진축이므로, Navigation Frame에서의 헤딩은 Body-Y(2번째 열)의 각도임
+	float my_yaw = std::atan2(R(1,1), R(0,1));
 
 	Eigen::Vector2f relative_pos = target_pos - my_state.p.head<2>();
 	float current_los = std::atan2(relative_pos.y(), relative_pos.x());

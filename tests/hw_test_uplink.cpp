@@ -99,25 +99,24 @@ public:
                         }
 
                         if (payload.seq % 100 == 0) {
-                            std::cout << "\n[GCS RX Success] "
-                                      << "Seq: " << payload.seq
-                                      << " | Target: (" << payload.target_x << ", " << payload.target_y << ")"
+                            std::cout << "[COMM] RX <- GCS | Seq: " << std::dec << payload.seq
+                                      << " | Target: (" << std::fixed << std::setprecision(1) << payload.target_x << ", " << payload.target_y << ")"
                                       << " | Torpedo: (" << payload.torpedo_x << ", " << payload.torpedo_y << ")"
                                       << " | Steer: " << payload.steer 
                                       << " | Flags: 0x" << std::hex << static_cast<int>(payload.flags) << std::dec << std::endl;
                         }
 
                         ControlPayload cmd;
-                        cmd.velocity = 60.0f; 
-                        cmd.rudder = -1.0f * static_cast<float>(payload.steer);
+                        cmd.velocity = 60.0f;
+                        cmd.rudder = static_cast<float>(payload.steer); // [수정] GCS(+)오른쪽을 내부(+)오른쪽으로 직접 대응
                         cmd.elevator = 0.0f;
                         ms_.onControlPacketReceived(cmd, timestamp_ms);
                     } else {
                         // CRC 에러 로그 추가
                         static uint32_t crc_err_count = 0;
                         if (++crc_err_count % 10 == 1) {
-                            std::cerr << "\n[GCS CRC ERR] Recv: 0x" << std::hex << received_crc 
-                                      << " | Calc: 0x" << calc_crc << " (Count: " << std::dec << crc_err_count << ")" << std::endl;
+                            std::cerr << "[COMM] CRC Error (GCS) | Recv: 0x" << std::hex << received_crc 
+                                      << " | Calc: 0x" << calc_crc << " (Total: " << std::dec << crc_err_count << ")" << std::endl;
                         }
                     }
                 }
@@ -135,15 +134,13 @@ public:
 
         std::memcpy(buf, &pkt, total_size);
 
-        // GCS TX 로그 일시 중단
+        // GCS TX 로그
         if (pkt.payload.seq % 10 == 0) {
-            std::cout << "\n[GCS TX Uplink] "
-                      << "Seq: " << pkt.payload.seq
+            std::cout << "[COMM] TX -> GCS | Seq: " << std::dec << pkt.payload.seq
                       << " | Pos: (" << std::fixed << std::setprecision(2) << pkt.payload.p_x << ", " << pkt.payload.p_y << ")"
                       << " | Yaw: " << (pkt.payload.yaw * 180.0f / 3.14159265f) << " deg"
                       << " | Status: 0x" << std::hex << static_cast<int>(pkt.payload.status_flags) << std::dec << std::endl;
         }
-        
 
         return total_size;
     }
@@ -164,7 +161,7 @@ public:
         
         static bool first_fb = true;
         if (first_fb) {
-            std::cout << "\n[STM32 FB] First feedback packet received!" << std::endl;
+            std::cout << "[COMM] RX <- STM32 | First feedback packet received!" << std::endl;
             first_fb = false;
         }
         
@@ -195,7 +192,7 @@ int main() {
     std::cout << "================================================================" << std::endl;
 
     // 1. Hardware Links
-    std::cout << "[Step 1] Setting up Hardware Links..." << std::endl;
+    std::cout << "[SYS] Setting up Hardware Links..." << std::endl;
     UartLink stm_link("/dev/ttyPS1", 230400);
     UartLink gcs_link("/dev/ttyS2", 115200);
 
@@ -239,9 +236,9 @@ int main() {
     stm_parser.registerHandler(PACKET_FUNC_CHASSIS_FEEDBACK, &stm_handler);
 
     // 10. System Initialization
-    std::cout << "[Step 2] Initializing TCS..." << std::endl;
-    if (!tcs.init()) {
-        std::cerr << "  FAILED: TCS Initialization!" << std::endl;
+    std::cout << "[SYS] Initializing TCS..." << std::endl;
+    if (!tcs.init(false)) {
+        std::cerr << "[SYS] FAILED: TCS Initialization!" << std::endl;
         return -1;
     }
 
@@ -253,43 +250,46 @@ int main() {
     gcs_nm.start(); 
     stm_nm.start();
     
-    std::cout << "  - All Modules (TCS, NM, RingBuffers) Started." << std::endl;
-
-    // 11. Real-time Monitoring Loop
-    std::cout << "[Step 3] Monitoring Pipeline & Uplink (Press Ctrl+C to stop)" << std::endl;
+    std::cout << "[SYS] All Modules Started." << std::endl;
+    std::cout << "[SYS] Monitoring Pipeline (Press Ctrl+C to stop)" << std::endl;
     
     std::cout << "\n" << std::left << std::setw(6) << "Mode" 
               << std::setw(7) << "V_Cmd" << std::setw(7) << "R_Cmd" 
-              << std::setw(10) << "Age" 
-              << std::setw(15) << "RPS(M1/M2)"
-              << std::setw(12) << "Uplink" << std::endl;
+              << std::setw(10) << "GCS_Age" 
+              << std::setw(10) << "STM_Age"
+              << std::setw(10) << "TCS_Lat"
+              << std::setw(10) << "Yaw" 
+              << std::setw(10) << "Odo" << std::endl;
     std::cout << "--------------------------------------------------------------------------------" << std::endl;
 
     while (g_keep_running) {
         ControlState current_cmd;
-        uint64_t last_ts;
-        manual_source.fetchLatestState(current_cmd, last_ts);
-        uint64_t now = utils::getCurrentTimeMs();
-        uint64_t age = (last_ts > 0) ? (now - last_ts) : 9999;
-
-        float speed = rps_tracker.getSpeed();
-        const auto& pos = rps_tracker.getPosition();
-        const auto& q = eskf.state().q;
+        uint64_t last_gcs_ts;
+        manual_source.fetchLatestState(current_cmd, last_gcs_ts);
         
-        float yaw = std::atan2(2.0f * (q.w() * q.z() + q.x() * q.y()), 
-                               1.0f - 2.0f * (q.y() * q.y() + q.z() * q.z()));
-        float yaw_deg = yaw * 180.0f / 3.14159265f;
+        uint64_t now = utils::getCurrentTimeMs();
+        uint64_t gcs_age = (last_gcs_ts > 0) ? (now - last_gcs_ts) : 9999;
+        
+        uint64_t last_stm_ts = tcs.getLatestFeedbackTime();
+        uint64_t stm_age = (last_stm_ts > 0) ? (now - last_stm_ts) : 9999;
+        
+        uint32_t tcs_lat_us = tcs.getLoopElapsedUs();
 
-        std::cout << "\r" << std::left 
+        float yaw_deg = tcs.getLatestSteeringYaw();
+        float odo = rps_tracker.getOdometer();
+
+        // [Periodic Telemetry] 2Hz print for clean logs
+        std::cout << std::left 
                   << std::setw(6) << static_cast<int>(mux.getMode())
                   << std::setw(7) << std::fixed << std::setprecision(1) << current_cmd.velocity
                   << std::setw(7) << current_cmd.rudder
-                  << std::setw(10) << std::dec << age << "ms"
-                  << " RPS:" << std::setw(10) << std::fixed << std::setprecision(2) << speed / 0.22f 
-                  << " | P:(" << pos.x() << "," << pos.y() << ")"
-                  << " Y:" << std::setw(6) << yaw_deg << std::flush;
+                  << std::setw(10) << std::dec << gcs_age
+                  << std::setw(10) << stm_age
+                  << std::setw(10) << tcs_lat_us
+                  << std::setw(10) << std::fixed << std::setprecision(1) << yaw_deg
+                  << std::setw(10) << std::setprecision(2) << odo << std::endl;
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
     // 12. Cleanup
