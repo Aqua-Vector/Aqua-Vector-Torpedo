@@ -36,18 +36,39 @@ void LidarAidedIns::warmup() {
 }
 
 bool LidarAidedIns::calibrate() {
+    imu_.flush(); // 캘리브레이션 시작 전 버퍼 비우기 (최신 데이터 확보)
     calib_.start();
+    uint64_t start_t = monotonic_us();
+    int last_sec = -1;
+
+    std::printf("[LidarAidedIns] Starting 5s calibration...\n");
+
     while (calib_.is_collecting()) {
         ImuSample s;
         if (!imu_.read_sample(s)) {
             usleep(1000);
+            
+            // 데이터가 아예 안 들어올 경우를 대비한 타임아웃 (10초)
+            if (monotonic_us() - start_t > 10000000ULL) {
+                std::printf("[LidarAidedIns] ERROR: Calibration Timeout! No data from IMU.\n");
+                return false;
+            }
             continue;
         }
         calib_.add_sample(s);
+
+        // 1초마다 진행 상황 출력
+        int current_sec = static_cast<int>((monotonic_us() - start_t) / 1000000ULL);
+        if (current_sec != last_sec) {
+            std::printf("[LidarAidedIns] Calibrating... %d/5s (Progress: %.0f%%)\n", 
+                        current_sec + 1, calib_.progress() * 100.0f);
+            last_sec = current_sec;
+        }
     }
 
     bias_ = calib_.finalize();
     if (!bias_.valid) {
+        std::printf("[LidarAidedIns] ERROR: Calibration Finalize Failed (Samples: %d)\n", bias_.n_samples);
         calibrated_ = false;
         return false;
     }
@@ -56,6 +77,11 @@ bool LidarAidedIns::calibrate() {
     q_start_ = Eigen::Quaternionf(bias_.q_start_w, bias_.q_start_x,
                                   bias_.q_start_y, bias_.q_start_z);
     q_start_.normalize();
+
+    // 시작 Yaw 확인 (디버깅)
+    float yaw0 = quat_to_yaw_deg(q_start_.w(), q_start_.x(), q_start_.y(), q_start_.z());
+    std::printf("[LidarAidedIns] Calibration Successful! Samples: %d, Start Yaw: %.2f deg\n", 
+                bias_.n_samples, yaw0);
 
     // ESKF 초기화 — 시작 위치 (0,0,0), 정지
     eskf_.init();

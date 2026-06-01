@@ -107,7 +107,7 @@ public:
                         }
 
                         ControlPayload cmd;
-                        cmd.velocity = 100.0f;
+                        cmd.velocity = 60.0f;
                         cmd.rudder = static_cast<float>(payload.steer); // [수정] GCS(+)오른쪽을 내부(+)오른쪽으로 직접 대응
                         cmd.elevator = 0.0f;
                         ms_.onControlPacketReceived(cmd, timestamp_ms);
@@ -243,7 +243,7 @@ int main() {
     }
 
     // Seed Manual Mode AFTER init
-    manual_source.onControlPacketReceived({100.0f, 0, 0}, utils::getCurrentTimeMs());
+    manual_source.onControlPacketReceived({60.0f, 0, 0}, utils::getCurrentTimeMs());
     mux.setMode(SystemMode::MANUAL);
 
     tcs.start();

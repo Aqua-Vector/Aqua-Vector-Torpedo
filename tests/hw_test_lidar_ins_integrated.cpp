@@ -16,6 +16,7 @@
 #include "protocol/Payloads.hpp"
 #include "protocol/ProtocolIds.hpp"
 #include "protocol/Marshaller.hpp"
+#include "control/STMControlParser.hpp"
 #include "utils/StaticRingBuffer.hpp"
 #include "utils/TimeUtils.hpp"
 #include "utils/CrcCalculator.hpp"
@@ -29,10 +30,13 @@ void signalHandler(int) { g_keep_running = false; }
 /**
  * @brief GCS Data Handler
  * Receives Lidar position from GCS and feeds it to the LidarAidedIns module.
+ * Also extracts steering commands for STM32.
  */
 class LidarAidedInsParser : public IPacketParser {
 private:
     LidarAidedIns& ins_;
+    float& steer_ref_;
+    float& velocity_ref_;
     uint8_t buffer_[128];
     size_t rx_idx_ = 0;
     int state_ = 0;
@@ -40,7 +44,8 @@ private:
     uint64_t last_rx_time_ms_ = 0;
 
 public:
-    explicit LidarAidedInsParser(LidarAidedIns& ins) : ins_(ins) {}
+    explicit LidarAidedInsParser(LidarAidedIns& ins, float& steer, float& velocity) 
+        : ins_(ins), steer_ref_(steer), velocity_ref_(velocity) {}
 
     void parseByte(uint8_t byte, uint64_t timestamp_ms) override {
         if (state_ != 0 && (timestamp_ms - last_rx_time_ms_) > 50) {
@@ -69,16 +74,20 @@ public:
             size_t total_expected = expected_length_ + 6;
             if (rx_idx_ >= total_expected) {
                 if (expected_length_ == sizeof(ControlStationPayload)) {
-                    uint16_t calc_crc = utils::CrcCalculator::CalculateCrc16Ccitt(buffer_, total_expected - 2);
+                    uint16_t calc_crc = CrcCalculator::CalculateCrc16Ccitt(buffer_, total_expected - 2);
                     uint16_t received_crc = buffer_[total_expected - 2] | (buffer_[total_expected - 1] << 8);
                     
                     if (calc_crc == received_crc) {
                         ControlStationPayload payload;
                         std::memcpy(&payload, &buffer_[4], sizeof(ControlStationPayload));
                         
-                        // Feed Lidar data to INS
-                        // Note: GCS provides torpedo_x/y as Lidar measurements
+                        // 1. Feed Lidar data to INS
                         ins_.feed_lidar(payload.torpedo_x, payload.torpedo_y);
+
+                        // 2. Extract Control Commands
+                        steer_ref_ = static_cast<float>(payload.steer);
+                        // flags가 0x01이면 전진(100.0f), 아니면 정지(0.0f) 예시
+                        velocity_ref_ = (payload.flags & 0x01) ? 100.0f : 0.0f;
                     }
                 }
                 state_ = 0; rx_idx_ = 0;
@@ -136,7 +145,9 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    LidarAidedInsParser parser(ins);
+    float steer_ref = 0.0f;
+    float velocity_ref = 0.0f;
+    LidarAidedInsParser parser(ins, steer_ref, velocity_ref);
     StaticRingBuffer<GenericPacket<TorpedoUplinkPayload, uint16_t>, 64> tx_queue;
 
     // 3. Main Loop
@@ -187,7 +198,7 @@ int main(int argc, char** argv) {
                 pkt.payload.status_flags = ins.last_lidar_used() ? 0x01 : 0x00;
                 pkt.payload.status_flags |= ins.last_zupt_active() ? 0x02 : 0x00;
                 
-                pkt.crc = utils::CrcCalculator::CalculateCrc16Ccitt(reinterpret_cast<uint8_t*>(&pkt.msg_id), 2 + pkt.length);
+                pkt.crc = CrcCalculator::CalculateCrc16Ccitt(reinterpret_cast<uint8_t*>(&pkt.msg_id), 2 + pkt.length);
                 
                 uint8_t tx_buf[128];
                 size_t tx_len = parser.serialize(pkt, tx_buf, sizeof(tx_buf));

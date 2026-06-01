@@ -75,6 +75,8 @@ bool TorpedoControlSystem::init(bool skip_calibration) {
 		auto cal_start = std::chrono::steady_clock::now();
 		uint64_t last_t_us = 0;
 		int last_reported_sec = -1;
+		float sum_yaw = 0.0f;
+		int yaw_samples = 0;
 
 		while (!cal.is_done()) {
 			torpedo::ImuSample s;
@@ -82,6 +84,13 @@ bool TorpedoControlSystem::init(bool skip_calibration) {
 				// 중복 데이터 방지: 타임스탬프가 새로울 때만 샘플 추가
 				if (s.t_us != last_t_us) {
 					cal.add_sample(s);
+					
+					// Yaw 오프셋 계산을 위한 누적
+					if (s.valid) {
+						sum_yaw += s.yaw;
+						yaw_samples++;
+					}
+
 					last_t_us = s.t_us;
 
 					// 1초 단위로 진행 상황 출력
@@ -108,6 +117,13 @@ bool TorpedoControlSystem::init(bool skip_calibration) {
 			auto res = cal.finalize();
 			if (res.success) {
 				bias_estimate_ = res.bias;
+				
+				// [Add] Yaw 오프셋 설정
+				if (yaw_samples > 0) {
+					imu_yaw_offset_ = sum_yaw / static_cast<float>(yaw_samples);
+					std::cout << "[SYS] IMU Yaw Offset Calibrated: " << imu_yaw_offset_ * 180.0f / 3.14159265f << " deg" << std::endl;
+				}
+
 				// ESKF 초기 자세 설정 (원본 ESKF를 건드리지 않으려면 re-init 사용)
 				torpedo::domain::EskfInitParams params;
 				params.q0 = res.q0;
@@ -164,16 +180,25 @@ void TorpedoControlSystem::mainLoopTask() {
 		// IMU 데이터 읽기 및 ESKF Predict
 		torpedo::ImuSample imu_sample;
 		if (imu_.read(imu_sample)) {
-			// [수정] 가속도 데이터는 사용하지 않도록 0으로 설정 (사용자 요청: 가속도 말고 heading만 사용)
-			imu_sample.ax = 0.0f;
-			imu_sample.ay = 0.0f;
-			imu_sample.az = 0.0f;
+			// [수정] 가속도/자이로 데이터를 ESKF에 전달하여 위치/자세 추정 수행
+			eskf_estimator_.predict(imu_sample, bias_estimate_, 0.01f);
 
-			// [주석 처리] 자이로를 통한 Yaw 측정 중단
-			// eskf_estimator_.predict(imu_sample, bias_estimate_, 0.01f);
+			// [선택] NHC(옆방향 속도 제약) 업데이트 (기본적으로 전진 위주이므로 유효)
+			eskf_estimator_.update_nhc();
 
-			// [주석 처리] MiniIMU의 절대 각도(Yaw) 업데이트 중단
-			// latest_imu_yaw_ = yaw_lpf_.updateAngle(imu_sample.yaw);
+			// [Add] EBIMU Yaw 업데이트
+			if (imu_sample.valid) {
+				// [Fix] 다시 마이너스(-) 추가.
+				// 로그 확인 결과, 센서/파서에서 올라오는 값이 CCW+(왼쪽이 양수)임이 확정됨.
+				// 시스템 표준인 CW+(오른쪽이 양수)로 맞추기 위해 반전 필수.
+				latest_imu_yaw_ = -(imu_sample.yaw - imu_yaw_offset_);
+				
+				// Normalize to -PI ~ PI
+				while (latest_imu_yaw_ > 3.14159265f) latest_imu_yaw_ -= 2.0f * 3.14159265f;
+				while (latest_imu_yaw_ < -3.14159265f) latest_imu_yaw_ += 2.0f * 3.14159265f;
+
+				imu_data_received_ = true;
+			}
 		}
 
 		// 루프 실행 시간 측정 시작
@@ -189,7 +214,7 @@ void TorpedoControlSystem::mainLoopTask() {
 		// 주기적 디버그 출력
 		if (++loop_count >= 100) {
 			SystemMode mode = mode_mux_.getMode();
-			const auto& pos = rps_tracker_.getPosition();
+			const auto& pos = rps_tracker_.getPosition(); // [Modify] RPS 위치 사용
 			float speed = rps_tracker_.getSpeed();
 			
 			// 마지막 제어 명령 peek를 위해 Mailbox fetch 대신 Guidance 결과 직접 로깅 고려 가능하나,
@@ -211,6 +236,10 @@ void TorpedoControlSystem::mainLoopTask() {
 }
 
 void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
+	// [Add] Nav Frame으로 변환하기 위한 쿼터니언 생성 (Eigen은 CCW 기준이므로 부호 반전)
+	// 함수 시작 시점에 계산하여 전체 스코프에서 사용 가능하게 함
+	Eigen::Quaternionf q_nav = Eigen::Quaternionf(Eigen::AngleAxisf(-cumulative_yaw_rad_, Eigen::Vector3f::UnitZ()));
+
 	// 1. GCS로부터 최신 데이터(Lidar) 획득
 	ControlStationPayload gcs_data;
 	uint64_t gcs_ts;
@@ -224,7 +253,7 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 		// STM32 내부 명령은 (-)가 오른쪽이지만, 서보 피드백(servo_pos)은 오른쪽일 때 1500보다 커지므로 그대로 사용
 		latest_steering_yaw_ = (static_cast<float>(stm_fb.servo_pos) - 1500.0f) * 0.08f * STEERING_SCALE_FACTOR;
 
-		// [수정] 속도 계산
+		// [수정] 속도 계산: 전진 시 RPS 차이가 양수가 나오므로 그대로 사용
 		float raw_speed = (stm_fb.m1_rps - stm_fb.m2_rps) * 0.5f * RPS_TO_MPS;
 		float filtered_speed = speed_lpf_.update(raw_speed);
 
@@ -242,12 +271,15 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 		float steer_rad = latest_steering_yaw_ * (3.14159265f / 180.0f);
 		
 		if (std::abs(filtered_speed) > 0.01f) {
-			float dyaw = (filtered_speed / WHEEL_BASE) * std::tan(steer_rad) * dt;
-			cumulative_yaw_rad_ += dyaw;
+			// [Modify] IMU 데이터(EBIMU)가 있으면 IMU Yaw를 우선 사용 (Mix EBIMU + RPS)
+			if (imu_data_received_) {
+				// [Fix] EBIMU(CCW+) -> System(CW+) 변환이 이미 mainLoopTask에서 이루어짐
+				cumulative_yaw_rad_ = latest_imu_yaw_;
+			} else {
+				float dyaw = (filtered_speed / WHEEL_BASE) * std::tan(steer_rad) * dt;
+				cumulative_yaw_rad_ += dyaw;
+			}
 		}
-
-		// Nav Frame으로 변환하기 위한 쿼터니언 생성 (Eigen은 CCW 기준이므로 부호 반전)
-		Eigen::Quaternionf q_nav = Eigen::Quaternionf(Eigen::AngleAxisf(-cumulative_yaw_rad_, Eigen::Vector3f::UnitZ()));
 
 		// 위치 업데이트
 		rps_tracker_.update(filtered_speed, q_nav, dt);
@@ -261,6 +293,13 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 		target_pos = Eigen::Vector2f(gcs_data.target_x, gcs_data.target_y);
 		terminal_trigger = (gcs_data.flags & 0x01);
 		
+		// [수정] GCS로부터 수신한 Lidar 좌표(torpedo_x/y)를 ESKF에 업데이트
+		// 단, 값이 (0,0) 이거나 NaN인 경우 무시 (위치 튐 방지)
+		if (!std::isnan(gcs_data.torpedo_x) && !std::isnan(gcs_data.torpedo_y) &&
+			(std::abs(gcs_data.torpedo_x) > 0.001f || std::abs(gcs_data.torpedo_y) > 0.001f)) {
+			eskf_estimator_.update_lidar(Eigen::Vector2f(gcs_data.torpedo_x, gcs_data.torpedo_y));
+		}
+
 		// [수정] GCS flags를 기반으로 모드 전환 (최우선 순위: 3: FAILSAFE)
 		if (gcs_data.flags == 0x03 || (gcs_data.flags & 0x03) == 0x03) {
 			if (mode_mux_.getMode() != SystemMode::FAILSAFE) {
@@ -281,13 +320,17 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 	}
 
 	// 3. 유도 알고리즘 실행 (GuidanceManager)
-	// ESKF의 자세와 RPS 트래커의 위치를 조합한 하이브리드 상태 생성
+	// [Modify] IMU 가속도 기반 ESKF 대신, 안정적인 RPS 트래커의 위치를 사용 (EBIMU+RPS 융합)
 	torpedo::domain::EskfState hybrid_state = eskf_estimator_.state();
-	hybrid_state.p = rps_tracker_.getPosition();
+	hybrid_state.p = rps_tracker_.getPosition(); // [Unlock] RPS 위치 사용
+	
+	// [Modify] PN Guidance 테스트와 동일하게 q_nav(EBIMU/Steer 기반)를 강제 적용
+	// q_nav는 위에서 이미 생성되었으므로 재사용
+	hybrid_state.q = q_nav;
 	
 	// [수정] 속도 벡터를 Nav Frame으로 변환 (사용자 요청: Y축이 전진축)
 	float speed_val = rps_tracker_.getSpeed();
-	hybrid_state.v = eskf_estimator_.state().q * Eigen::Vector3f(0.0f, speed_val, 0.0f);
+	hybrid_state.v = q_nav * Eigen::Vector3f(0.0f, speed_val, 0.0f);
 
 	ControlState auto_cmd = guidance_manager_.update(
 			hybrid_state, 
@@ -376,10 +419,10 @@ void TorpedoControlSystem::sendUplinkTelemetry(uint64_t current_time_ms) {
 	if (current_time_ms - last_uplink_ms < 100) return; // 10Hz
 	last_uplink_ms = current_time_ms;
 
-	// RPS 트래커 기반 위치 사용
+	// [Modify] RPS 트래커의 안정적인 좌표 사용
 	const auto& pos = rps_tracker_.getPosition();
 	
-	// [수정] 자이로 기반 Yaw 대신 누적된 조향 Yaw 사용
+	// [수정] 자이로 기반 Yaw 대신 누적된 조향 Yaw 사용 (또는 ESKF Yaw 선택 가능)
 	float yaw = cumulative_yaw_rad_; 
 
 	// 통제소 전용 업링크 패킷 (GenericPacket 구조 사용)
@@ -396,23 +439,21 @@ void TorpedoControlSystem::sendUplinkTelemetry(uint64_t current_time_ms) {
 	pkt.payload.status_flags = static_cast<uint8_t>(guidance_manager_.getPhase());
 	pkt.payload.reserved = 0;
 
-	// CRC 계산 (Header 제외: msg_id + length + payload)
+	// [Modify] 싱크 바이트(header[0,1]) 제외하고 ID부터 계산
 	pkt.crc = TelemetryPolicy::calculateCrc(&pkt.msg_id, 2 + pkt.length);
 
 	// NetworkManager를 통한 송신
 	gcs_manager_.send(pkt);
 
 	// TX 로그 (1초 주기)
-	/*
 	static uint64_t last_log_ms = 0;
 	if (current_time_ms - last_log_ms >= 1000) {
 		last_log_ms = current_time_ms;
-		std::cout << "[TX Uplink] Seq: " << pkt.payload.seq 
+		std::cout << "[COMM] TX -> GCS | Seq: " << pkt.payload.seq 
 				  << " | Pos: (" << std::fixed << std::setprecision(2) << pkt.payload.p_x 
 				  << ", " << pkt.payload.p_y << ")" 
 				  << " | Yaw: " << std::setprecision(1) << (pkt.payload.yaw * 180.0f / 3.14159265f) << " deg" << std::endl;
 	}
-	*/
 }
 
 void TorpedoControlSystem::onStm32FeedbackReceived(const FeedbackPayload& payload, uint64_t timestamp_ms) {

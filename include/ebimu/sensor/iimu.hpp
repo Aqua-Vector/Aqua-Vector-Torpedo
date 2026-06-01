@@ -32,6 +32,9 @@ public:
     /// @param out  성공 시 채워질 샘플
     /// @return 성공 여부 (timeout/실패 시 false)
     virtual bool read_sample(ImuSample& out) = 0;
+
+    /// 버퍼 비우기 (최신 데이터를 위해).
+    virtual void flush() {}
     
     /// 리소스 정리.
     virtual void close() = 0;

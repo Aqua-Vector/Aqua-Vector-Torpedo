@@ -111,4 +111,33 @@ namespace Marshaller {
 		return ok;
 	}
 
+	// TorpedoUplinkPayload
+	bool serialize(const TorpedoUplinkPayload& data, uint8_t* buffer, size_t size) {
+		BufferView view(buffer, size);
+		bool ok = true;
+
+		ok &= view.write<uint16_t>(data.seq);
+		ok &= view.writeFloat(data.p_x);
+		ok &= view.writeFloat(data.p_y);
+		ok &= view.writeFloat(data.yaw);
+		ok &= view.write<uint8_t>(data.status_flags);
+		ok &= view.write<uint8_t>(data.reserved);
+
+		return ok;
+	}
+
+	bool deserialize(const uint8_t* buffer, size_t size, TorpedoUplinkPayload& data) {
+		BufferView view(const_cast<uint8_t*>(buffer), size);
+		bool ok = true;
+
+		ok &= view.read<uint16_t>(data.seq);
+		ok &= view.readFloat(data.p_x);
+		ok &= view.readFloat(data.p_y);
+		ok &= view.readFloat(data.yaw);
+		ok &= view.read<uint8_t>(data.status_flags);
+		ok &= view.read<uint8_t>(data.reserved);
+
+		return ok;
+	}
+
 }

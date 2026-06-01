@@ -33,6 +33,7 @@ public:
 
     bool init() override;
     bool read_sample(ImuSample& out) override;
+    void flush() override;
     void close() override;
 
     /// 라인 파싱 — 테스트용 public 노출.

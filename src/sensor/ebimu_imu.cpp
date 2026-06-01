@@ -37,7 +37,8 @@ bool EbimuImu::init() {
         return false;
     }
     
-    fd_ = ::open(cfg_.device.c_str(), O_RDONLY | O_NOCTTY);
+    // [Fix] O_RDWR로 열기 (Petalinux 등 일부 시스템에서 O_RDONLY 시 tcsetattr이 제대로 안 먹힐 수 있음)
+    fd_ = ::open(cfg_.device.c_str(), O_RDWR | O_NOCTTY);
     if (fd_ < 0) {
         std::fprintf(stderr, "[ebimu] open(%s) 실패: %s\n",
                      cfg_.device.c_str(), std::strerror(errno));
@@ -51,6 +52,9 @@ bool EbimuImu::init() {
         return false;
     }
     
+    // [Fix] cfmakeraw를 사용하여 깨끗한 raw mode 상태로 시작
+    cfmakeraw(&opts);
+    
     speed_t sp = baud_to_speed(cfg_.baud);
     cfsetispeed(&opts, sp);
     cfsetospeed(&opts, sp);
@@ -59,13 +63,12 @@ bool EbimuImu::init() {
     opts.c_cflag &= ~(PARENB | CSTOPB | CSIZE);
     opts.c_cflag |= CS8;
     
-    opts.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-    opts.c_iflag &= ~(IXON | IXOFF | IXANY | INLCR | ICRNL);
-    opts.c_oflag &= ~OPOST;
+    // [Fix] 하드웨어 흐름 제어 명시적 비활성화
+    opts.c_cflag &= ~CRTSCTS;
     
     // 100ms timeout
-    opts.c_cc[VMIN]  = 0;
-    opts.c_cc[VTIME] = static_cast<cc_t>(cfg_.read_timeout_ms / 100);
+    opts.c_cc[VMIN]  = 1; // [Fix] 최소 1바이트는 기다리도록 설정
+    opts.c_cc[VTIME] = static_cast<cc_t>(cfg_.read_timeout_ms / 100); 
     if (opts.c_cc[VTIME] < 1) opts.c_cc[VTIME] = 1;
     
     if (tcsetattr(fd_, TCSANOW, &opts) < 0) {
@@ -74,30 +77,31 @@ bool EbimuImu::init() {
         return false;
     }
     
+    // [Fix] 버퍼 비우기
+    tcflush(fd_, TCIOFLUSH);
+    
     // 초기 노이즈 비우기 (5번 dummy read)
     char tmp[256];
     for (int i = 0; i < 5; i++) {
+        // VMIN=1 이므로 데이터가 없으면 VTIME만큼 기다림
         ::read(fd_, tmp, sizeof(tmp));
         usleep(10000);
     }
     
     buf_len_ = 0;
     
-    std::printf("[ebimu] OK: %s @ %u bps\n", cfg_.device.c_str(), cfg_.baud);
+    std::printf("[ebimu] OK: %s @ %u bps (VMIN=1, VTIME=%d)\n", 
+                cfg_.device.c_str(), cfg_.baud, opts.c_cc[VTIME]);
     return true;
 }
 
 bool EbimuImu::read_sample(ImuSample& out) {
     if (fd_ < 0) return false;
     
-    char tmp[256];
-    int n = ::read(fd_, tmp, sizeof(tmp));
-    if (n <= 0) return false;
-    
-    // 줄 단위 처리
-    for (int i = 0; i < n; i++) {
-        char c = tmp[i];
-        
+    char c;
+    // 1바이트씩 읽으며 완결된 줄을 찾음.
+    // O_RDWR/VMIN=1 설정으로 인해 데이터가 있으면 즉시 반환, 없으면 timeout까지 대기.
+    while (::read(fd_, &c, 1) > 0) {
         if (c == '\n' || c == '\r') {
             if (buf_len_ > 0) {
                 buf_[buf_len_] = 0;
@@ -107,19 +111,22 @@ bool EbimuImu::read_sample(ImuSample& out) {
                     out.t_us = monotonic_us();
                     return true;
                 }
-                // 파싱 실패 시 다음 줄 시도
             }
         } else {
             if (buf_len_ < static_cast<int>(sizeof(buf_)) - 1) {
                 buf_[buf_len_++] = c;
             } else {
-                // 오버플로 → 버퍼 리셋
-                buf_len_ = 0;
+                buf_len_ = 0; // 오버플로우
             }
         }
     }
-    
     return false;
+}
+
+void EbimuImu::flush() {
+    if (fd_ < 0) return;
+    tcflush(fd_, TCIFLUSH);
+    buf_len_ = 0;
 }
 
 bool EbimuImu::parse_line(const char* line, ImuSample& out) {

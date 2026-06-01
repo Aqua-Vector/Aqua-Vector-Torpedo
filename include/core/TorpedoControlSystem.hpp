@@ -55,6 +55,8 @@ private:
 	torpedo::domain::RpsPositionTracker& rps_tracker_;
 	torpedo::domain::BiasEstimate bias_estimate_;
 	float latest_imu_yaw_ = 0.0f;
+	float imu_yaw_offset_ = 0.0f;          // [Add] IMU 초기 Yaw 오프셋 (rad)
+	std::atomic<bool> imu_data_received_{false}; // [Add] IMU 데이터 수신 여부
 	float latest_steering_yaw_ = 0.0f;     // Instantaneous steering angle (deg)
 	float cumulative_yaw_rad_ = 0.0f;      // Integrated global yaw (rad)
 
@@ -71,8 +73,8 @@ private:
 	Mailbox<FeedbackPayload> stm32_feedback_mb_;
 
 	// 물리 상수
-	// [수정] 바퀴 지름 65.0mm -> 반지름 32.5mm (0.0325m)
-	const float WHEEL_RADIUS = 0.0325f; 
+	// [수정] 바퀴 지름 65.0mm -> 반지름 32.5mm (0.0325m) -> 실측 보정 후 33.9mm (0.0339m)
+	const float WHEEL_RADIUS = 0.0339f; 
 	const float RPS_TO_MPS = 2.0f * 3.14159265f * WHEEL_RADIUS;
 	const float WHEEL_BASE = 0.170f; 
 	const float STEERING_SCALE_FACTOR = 0.3f; // [Add] Yaw 누적 속도 조절을 위한 보정 계수 (2.2배 과적분 방지)
@@ -142,6 +144,11 @@ public:
 	 * @brief 루프 실행 시간(us) 가져오기
 	 */
 	uint32_t getLoopElapsedUs() const { return last_loop_elapsed_us_.load(); }
+
+	/**
+	 * @brief 최신 누적 Yaw(rad, CW+) 가져오기
+	 */
+	float getLatestCumulativeYaw() const { return cumulative_yaw_rad_; }
 
 	/**
 	 * @brief STM32로부터 피드백 수신 콜백
