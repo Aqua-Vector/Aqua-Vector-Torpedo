@@ -29,6 +29,7 @@
 
 // Guidance
 #include "guidance/GuidanceManager.hpp"
+#include "torpedo/domain/estimator/rps_tracker.hpp"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846f
@@ -39,6 +40,23 @@ using GCSPacket = GenericPacket<TorpedoUplinkPayload, uint16_t>;
 
 std::atomic<bool> g_keep_running(true);
 void signalHandler(int) { g_keep_running = false; }
+
+/**
+ * @brief STM32 피드백 핸들러 (RPS 수신용)
+ */
+class Stm32FeedbackHandler : public IMessageHandler {
+public:
+    Mailbox<FeedbackPayload>& mb;
+    explicit Stm32FeedbackHandler(Mailbox<FeedbackPayload>& mailbox) : mb(mailbox) {}
+
+    bool handle(const uint8_t* payload, size_t length, uint64_t timestamp_ms) override {
+        if (length != sizeof(FeedbackPayload)) return false;
+        FeedbackPayload data;
+        Marshaller::deserialize(payload, length, data);
+        mb.update(data, timestamp_ms);
+        return true;
+    }
+};
 
 /**
  * @brief GCS(통제소) 명령 패킷 핸들러
@@ -73,10 +91,10 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "================================================================" << std::endl;
-    std::cout << "   [STRAIGHT] 8-Seconds Straight Running Test                   " << std::endl;
+    std::cout << "   [STRAIGHT] 10-Seconds Straight Running Test                  " << std::endl;
     std::cout << "================================================================" << std::endl;
     std::cout << " Velocity : " << static_cast<int>(test_velocity) << std::endl;
-    std::cout << " Duration : 8.0 seconds" << std::endl;
+    std::cout << " Duration : 10.0 seconds" << std::endl;
     std::cout << " Ports    : IMU=" << imu_port << ", STM=" << stm_port << ", GCS=" << gcs_port << std::endl;
     std::cout << "================================================================" << std::endl;
 
@@ -116,6 +134,13 @@ int main(int argc, char** argv) {
     GcsHandler gcs_handler(gcs_mb);
     gcs_parser.registerHandler(0x00, &gcs_handler); 
 
+    // [Add] STM32 Feedback Handler & RPS Tracker
+    Mailbox<FeedbackPayload> stm_fb_mb;
+    Stm32FeedbackHandler stm_fb_handler(stm_fb_mb);
+    stm_parser.registerHandler(PACKET_FUNC_CHASSIS_FEEDBACK, &stm_fb_handler);
+
+    torpedo::domain::RpsPositionTracker rps_tracker;
+
     if (!stm_manager.start() || !gcs_manager.start()) {
         std::cerr << "[ERROR] 통신 매니저 시작 실패!" << std::endl;
         return -1;
@@ -135,21 +160,22 @@ int main(int argc, char** argv) {
     }
 
     imu.flush(); // 루프 시작 직전 버퍼 비우기 (지연 방지)
-    std::cout << "\n[RUNNING] Straight Running Started (8 seconds)..." << std::endl;
+    std::cout << "\n[RUNNING] Straight Running Started (10 seconds)..." << std::endl;
 
     auto loop_start_time = std::chrono::steady_clock::now();
     auto last_update_time = loop_start_time;
     auto last_cmd_time = loop_start_time;
     auto last_log_time = loop_start_time;
     auto last_uplink_time = loop_start_time;
+    auto last_1s_log_time = loop_start_time;
+    uint64_t last_fb_time_us = 0;
 
     while (g_keep_running) {
         auto now = std::chrono::steady_clock::now();
         float elapsed_total = std::chrono::duration<float>(now - loop_start_time).count();
-        float dt = std::chrono::duration<float>(now - last_update_time).count();
 
-        if (elapsed_total >= 8.0f) {
-            std::cout << "\n[INFO] 8 seconds reached. Stopping..." << std::endl;
+        if (elapsed_total >= 10.0f) {
+            std::cout << "\n[INFO] 10 seconds reached. Stopping..." << std::endl;
             break;
         }
 
@@ -163,9 +189,6 @@ int main(int argc, char** argv) {
             ins.feed_lidar(gcs_data.torpedo_x, gcs_data.torpedo_y);
             gcs_target = Eigen::Vector2f(gcs_data.target_x, gcs_data.target_y);
             terminal_trigger = (gcs_data.flags & 0x01);
-        } else {
-            // 직진 테스트이므로 타겟 불필요
-            gcs_target = std::nullopt;
         }
 
         // B. INS 업데이트
@@ -178,14 +201,40 @@ int main(int argc, char** argv) {
             q_start.normalize();
 
             // GuidanceManager용 상태 구성 (Relative Frame)
-            torpedo::domain::EskfState my_state;
-            my_state.p = q_start.conjugate() * Eigen::Vector3f(ins_state.px, ins_state.py, ins_state.pz);
-            my_state.v = q_start.conjugate() * Eigen::Vector3f(ins_state.vx, ins_state.vy, ins_state.vz);
+            // [Fix] 전진축을 Y축으로 맞추기 위해 축 변환 (INS X-forward -> Vehicle Y-forward)
+            // 우리 시스템 컨벤션: CW+ (오른쪽이 X+, 전방이 Y+)
+            // INS 좌표(X_ins, Y_ins) -> 우리 좌표(X_my, Y_my)
+            // X_my = Y_ins (오른쪽)
+            // Y_my = X_ins (전방)
+            Eigen::Vector3f p_rel = q_start.conjugate() * Eigen::Vector3f(ins_state.px, ins_state.py, ins_state.pz);
+            Eigen::Vector3f v_rel = q_start.conjugate() * Eigen::Vector3f(ins_state.vx, ins_state.vy, ins_state.vz);
             
-            float yaw_rad_ccw = -(ins.get_yaw_rel_deg() * (M_PI / 180.0f));
-            my_state.q = Eigen::Quaternionf(Eigen::AngleAxisf(yaw_rad_ccw, Eigen::Vector3f::UnitZ()));
+            torpedo::domain::EskfState my_state;
+            my_state.p = Eigen::Vector3f(p_rel.y(), p_rel.x(), p_rel.z());
+            my_state.v = Eigen::Vector3f(v_rel.y(), v_rel.x(), v_rel.z());
+            
+            // CW+ 컨벤션에 따른 쿼터니언 생성
+            float yaw_rad_cw = ins.get_yaw_rel_deg() * (M_PI / 180.0f);
+            my_state.q = Eigen::Quaternionf(Eigen::AngleAxisf(-yaw_rad_cw, Eigen::Vector3f::UnitZ()));
 
-            // [Modified] PN 유도 대신 8초간 직진 명령
+            // [Add] RPS Tracker 업데이트 (최신 Yaw 기반)
+            FeedbackPayload fb_data;
+            uint64_t fb_ts;
+            if (stm_fb_mb.fetch(fb_data, fb_ts)) {
+                float speed = (fb_data.m1_rps - fb_data.m2_rps) * 0.5f * (2.0f * M_PI * 0.0339f);
+                
+                uint64_t current_fb_us = fb_ts * 1000;
+                float rps_dt = 0.01f;
+                if (last_fb_time_us != 0 && current_fb_us > last_fb_time_us) {
+                    rps_dt = static_cast<float>(current_fb_us - last_fb_time_us) / 1000000.0f;
+                    if (rps_dt > 0.1f) rps_dt = 0.01f;
+                }
+                last_fb_time_us = current_fb_us;
+
+                rps_tracker.update(speed, my_state.q, rps_dt);
+            }
+
+            // [Modified] PN 유도 대신 10초간 직진 명령
             float target_velocity = test_velocity;
 
             // D. STM32 송신 (50Hz)
@@ -209,7 +258,7 @@ int main(int argc, char** argv) {
                 pkt.payload.seq = uplink_seq++;
                 pkt.payload.p_x = my_state.p.x();
                 pkt.payload.p_y = my_state.p.y();
-                pkt.payload.yaw = -yaw_rad_ccw; // CCW+ -> CW+
+                pkt.payload.yaw = yaw_rad_cw; // Already CW+
                 pkt.payload.status_flags = 0xAA; // 직진 모드 표시용 더미
                 
                 // [특수 상황] Uplink CRC는 싱크 바이트 제외 계산
@@ -225,6 +274,16 @@ int main(int argc, char** argv) {
                           << " | Yaw: " << std::setw(6) << ins.get_yaw_rel_deg() << " deg"
                           << (ins.last_lidar_used() ? " [LiDAR]" : "        ") << std::flush;
                 last_log_time = now;
+            }
+
+            // G. 명시적 1초 로깅 (RPS vs INS 위치 비교 + Raw Yaw)
+            if (std::chrono::duration<float>(now - last_1s_log_time).count() >= 1.0f) {
+                const auto& rp = rps_tracker.getPosition();
+                std::cout << "\n[LOG 1S] T: " << std::setw(4) << elapsed_total 
+                          << "s | RPS: (" << std::setw(6) << rp.x() << ", " << std::setw(6) << rp.y() << ")"
+                          << " | INS: (" << std::setw(6) << my_state.p.x() << ", " << std::setw(6) << my_state.p.y() << ")"
+                          << " | Raw Yaw: " << std::setw(6) << ins.get_yaw_rel_deg() << " deg" << std::endl;
+                last_1s_log_time = now;
             }
         }
         std::this_thread::sleep_for(std::chrono::microseconds(500));

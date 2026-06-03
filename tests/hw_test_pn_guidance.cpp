@@ -181,7 +181,7 @@ int main(int argc, char** argv) {
     // 4. 로직 컴포넌트 (트래커, 유도기, 필터) 초기화
     torpedo::domain::RpsPositionTracker rps_tracker;
     utils::LowPassFilter speed_lpf(0.2f);
-    PNGuidanceController pn_controller;
+    guidance::PNGuidanceController pn_controller;
 
     // 바퀴 반지름: 최신 캘리브레이션 반영 (33.9mm)
     const float WHEEL_RADIUS = 0.0339f; 

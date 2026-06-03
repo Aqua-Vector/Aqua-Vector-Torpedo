@@ -5,6 +5,8 @@
 #include "torpedo/domain/estimator/eskf_state.hpp"
 #include <Eigen/Dense>
 
+namespace guidance {
+
 class PNGuidanceController {
 private:
 	/**
@@ -33,5 +35,7 @@ public:
 
 	void reset();
 };
+
+} // namespace guidance
 
 #endif /* PN_GUIDANCE_CONTROLLER_HPP_ */

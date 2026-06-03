@@ -2,6 +2,8 @@
 #include <cmath>
 #include <algorithm>
 
+namespace guidance {
+
 PNGuidanceController::PNGuidanceController() {
 	reset();
 }
@@ -39,8 +41,11 @@ float PNGuidanceController::calculateSteering(const torpedo::domain::EskfState& 
 	// 4. Closing Velocity (V_c) 계산
 	// 타겟이 정지해 있다고 가정할 때, V_c는 내 속도의 타겟 방향 투영 성분
 	// V_c = - d(range)/dt
-	float V_c = (my_vel.x() * (relative_pos.x() / range)) + (my_vel.y() * (relative_pos.y() / range));
-	if (V_c < 0.1f) V_c = V_m; // 타겟 방향으로 가고 있지 않을 때 최소값 보장
+	float V_c = V_m;
+	if (range > 0.001f) {
+		V_c = (my_vel.x() * (relative_pos.x() / range)) + (my_vel.y() * (relative_pos.y() / range));
+	}
+	if (V_c < 0.1f) V_c = V_m; 
 
 	// 5. 정통 PN 수식: a_n = N * V_c * los_rate
 	// N_GAIN은 보통 3~5 사이의 값을 사용 (여기서는 4.0 적용)
@@ -74,3 +79,5 @@ float PNGuidanceController::normalizeAngle(float angle) const {
 	while (angle < -M_PI) angle += 2.0f * M_PI;
 	return angle;
 }
+
+} // namespace guidance

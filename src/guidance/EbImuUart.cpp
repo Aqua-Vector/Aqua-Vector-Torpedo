@@ -4,6 +4,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <sys/select.h>
+#include <sys/ioctl.h>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -22,12 +23,18 @@ EbImuUart::~EbImuUart() {
 }
 
 int EbImuUart::openSerial(const char* dev, int baud) {
-    int fd = open(dev, O_RDWR | O_NOCTTY);
+    // Non-blocking open to prevent hanging on certain hardware conditions
+    int fd = open(dev, O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (fd < 0) return -1;
+
+    // Optional: Try to set exclusive access
+#ifdef TIOCEXCL
+    ioctl(fd, TIOCEXCL);
+#endif
 
     termios tio{};
     if (tcgetattr(fd, &tio) < 0) {
-        close(fd);
+        ::close(fd);
         return -1;
     }
 
@@ -58,7 +65,7 @@ int EbImuUart::openSerial(const char* dev, int baud) {
     tio.c_cc[VTIME] = 1; // 0.1s timeout
 
     if (tcsetattr(fd, TCSANOW, &tio) < 0) {
-        close(fd);
+        ::close(fd);
         return -1;
     }
     tcflush(fd, TCIOFLUSH);
@@ -87,8 +94,15 @@ void EbImuUart::shutdown() {
         }
     }
     if (fd_ >= 0) {
-        close(fd_);
+        // Release exclusive access if it was set
+#ifdef TIOCNXCL
+        ioctl(fd_, TIOCNXCL);
+#endif
+        tcflush(fd_, TCIOFLUSH);
+        ::close(fd_);
         fd_ = -1;
+        // Small delay to let the OS clean up the descriptor
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 }
 
@@ -141,7 +155,6 @@ void EbImuUart::parseLine(const std::string& line) {
         float az_g = std::stof(tokens[10]);
 
         // Quaternion to Euler (Roll, Pitch, Yaw)
-        // Standard conversion for w, x, y, z
         float roll = std::atan2(2.0f * (qw * qx + qy * qz), 1.0f - 2.0f * (qx * qx + qy * qy));
         float pitch = std::asin(std::clamp(2.0f * (qw * qy - qz * qx), -1.0f, 1.0f));
         float yaw = std::atan2(2.0f * (qw * qz + qx * qy), 1.0f - 2.0f * (qy * qy + qz * qz));

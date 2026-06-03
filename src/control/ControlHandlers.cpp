@@ -22,8 +22,8 @@ bool ControlStationHandler::handle(const uint8_t* payload, size_t len, uint64_t 
 
     // GCS의 조향 명령을 ManualSource에 전달 (중기 유도 테스트 용)
     ControlPayload cmd;
-    cmd.velocity = target_velocity_; // [Modify] 설정된 속도 사용
-    cmd.rudder = static_cast<float>(data.steer);
+    cmd.velocity = target_velocity_; 
+    cmd.rudder = static_cast<float>(data.steer); // [Fix] 반전 없이 그대로 전달 (내부 표준 CW+ 일치)
     cmd.elevator = 0.0f;
     ms_.onControlPacketReceived(cmd, ts);
 

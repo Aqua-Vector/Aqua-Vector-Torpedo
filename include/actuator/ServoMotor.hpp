@@ -19,6 +19,7 @@ public:
 	ErrorCode init();
 	ErrorCode setAngle(float target_degree, float dt_sec);
 	ErrorCode disable();
+	float getCurrentAngle() const { return current_angle_; }
 };
 
 #endif /* SERVO_MOTOR_HPP_ */

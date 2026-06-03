@@ -78,6 +78,9 @@ public:
     /// 시작 자세 기준 상대 yaw (deg). 시연 컨벤션: 오른쪽 +, 왼쪽 -.
     float get_yaw_rel_deg() const { return last_yaw_rel_deg_; }
 
+    /// 최신 IMU 샘플의 원본 yaw (deg).
+    float get_raw_yaw_deg() const { return last_raw_yaw_deg_; }
+
     /// 가장 최근 사이클에서 LiDAR update가 적용됐는지.
     bool last_lidar_used() const { return last_lidar_used_; }
 
@@ -117,6 +120,7 @@ private:
     bool                last_lidar_used_  = false;
     bool                last_zupt_active_ = false;
     float               last_yaw_rel_deg_ = 0.0f;
+    float               last_raw_yaw_deg_ = 0.0f;
 
     // 통계
     uint32_t            predict_count_      = 0;

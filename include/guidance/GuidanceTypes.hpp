@@ -24,7 +24,7 @@ struct TargetState {
 namespace GuidanceConstants {
 	static constexpr float INTERCEPT_THRESHOLD_M = 0.2f; 	// 요격 판정 거리
 	static constexpr float TERMINAL_SWITCH_DIST_M = 2.0f; 	// 종말 유도 전환 거리
-	static constexpr float MAX_STEER_DEG = 40.0f; 		// 최대 조향각
+	static constexpr float MAX_STEER_DEG = 30.0f; 		// 최대 조향각
 	static constexpr float MIN_SAFE_SPEED_MPS = 0.5f; 	// PIP 계산용 최소 안전 속도  
 }
 

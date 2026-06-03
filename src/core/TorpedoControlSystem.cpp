@@ -250,39 +250,41 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 	uint64_t stm_ts;
 	if (stm32_feedback_mb_.fetch(stm_fb, stm_ts)) {
 		// [수정] 조향각 피드백 저장 (내부 표준: 오른쪽이 양수)
-		// STM32 내부 명령은 (-)가 오른쪽이지만, 서보 피드백(servo_pos)은 오른쪽일 때 1500보다 커지므로 그대로 사용
 		latest_steering_yaw_ = (static_cast<float>(stm_fb.servo_pos) - 1500.0f) * 0.08f * STEERING_SCALE_FACTOR;
 
-		// [수정] 속도 계산: 전진 시 RPS 차이가 양수가 나오므로 그대로 사용
+		// [복구] 속도 계산: 원래대로 m1-m2 차이 사용
 		float raw_speed = (stm_fb.m1_rps - stm_fb.m2_rps) * 0.5f * RPS_TO_MPS;
 		float filtered_speed = speed_lpf_.update(raw_speed);
 
-		// [수정] 정확한 dt 계산 (피드백 타임스탬프 기반)
 		uint64_t current_fb_us = stm_ts * 1000;
 		float dt = 0.01f;
 		if (last_feedback_time_us_ != 0 && current_fb_us > last_feedback_time_us_) {
 			dt = static_cast<float>(current_fb_us - last_feedback_time_us_) / 1000000.0f;
-			if (dt > 0.1f) dt = 0.01f; // 통신 끊김 시 예외 처리
+			if (dt > 0.1f) dt = 0.01f;
 		}
 		last_feedback_time_us_ = current_fb_us;
 
-		// 자이로 대신 STM32 조향 피드백을 이용한 Yaw 누적 (Dead Reckoning)
-		// CW-positive yaw를 사용하되, Nav Frame 변환 시에는 CCW로 변환하여 사용
-		float steer_rad = latest_steering_yaw_ * (3.14159265f / 180.0f);
-		
+		// [수정] Yaw 누적 업데이트: IMU 데이터와 RPS 추정 간의 급격한 점프 방지
 		if (std::abs(filtered_speed) > 0.01f) {
-			// [Modify] IMU 데이터(EBIMU)가 있으면 IMU Yaw를 우선 사용 (Mix EBIMU + RPS)
 			if (imu_data_received_) {
-				// [Fix] EBIMU(CCW+) -> System(CW+) 변환이 이미 mainLoopTask에서 이루어짐
+				// IMU 데이터가 있으면 그대로 사용하되, 
+				// 만약 RPS 기반 추정치와 차이가 너무 크면 위치 오차가 발생하므로
+				// 시스템 내부적으로는 IMU를 절대 기준으로 신뢰함 (Jump 최소화는 LPF에서 수행)
 				cumulative_yaw_rad_ = latest_imu_yaw_;
 			} else {
+				// IMU가 없을 때만 조향각 기반 Dead Reckoning (보조용)
+				float steer_rad = latest_steering_yaw_ * (3.14159265f / 180.0f);
 				float dyaw = (filtered_speed / WHEEL_BASE) * std::tan(steer_rad) * dt;
 				cumulative_yaw_rad_ += dyaw;
 			}
 		}
 
-		// 위치 업데이트
-		rps_tracker_.update(filtered_speed, q_nav, dt);
+		// [중요] 최신 Yaw를 반영한 q_nav 생성 (전진 방향 결정)
+		Eigen::Quaternionf q_nav_updated = Eigen::Quaternionf(Eigen::AngleAxisf(-cumulative_yaw_rad_, Eigen::Vector3f::UnitZ()));
+
+		// 위치 업데이트 (절대값 속도 사용)
+		// 만약 좌표 오차가 여전히 크다면 RPS_TO_MPS 스케일 상수를 점검해야 함
+		rps_tracker_.update(std::abs(filtered_speed), q_nav_updated, dt);
 	}
 
 	// 데이터 유효성 검사 (500ms 이상 지연 시 데이터 없음으로 처리)
@@ -333,9 +335,9 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 	hybrid_state.v = q_nav * Eigen::Vector3f(0.0f, speed_val, 0.0f);
 
 	ControlState auto_cmd = guidance_manager_.update(
-			hybrid_state, 
-			target_pos, 
-			terminal_trigger, 
+			hybrid_state,
+			target_pos,
+			terminal_trigger,
 			0.01f
 	);
 
@@ -352,7 +354,7 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 	SystemMode current_mode = mode_mux_.getMode();
 
 	if (prev_mode != current_mode) {
-		std::cout << "[TCS] Mode Changed: " << static_cast<int>(prev_mode) << " -> " << static_cast<int>(current_mode) 
+		std::cout << "[TCS] Mode Changed: " << static_cast<int>(prev_mode) << " -> " << static_cast<int>(current_mode)
 				  << " (Last manual update: " << manual_source_.getMailbox()->getLastUpdateTime() << ")" << std::endl;
 	}
 
@@ -364,9 +366,10 @@ void TorpedoControlSystem::processControlCycle(uint64_t current_time_ms) {
 		ControlDataValidator::sanitize(target_state);
 
 		STMPacket stm_pkt;
-		stm_pkt.msg_id = PACKET_FUNC_CHASSIS_CTRL; 
+		stm_pkt.msg_id = PACKET_FUNC_CHASSIS_CTRL;
 		stm_pkt.payload.velocity = target_state.velocity;
-		stm_pkt.payload.rudder = -target_state.rudder; // [수정] 내부(CW+)를 STM32(CCW+) 표준으로 변환하여 송신
+		// [Fix] 내부 표준(CW+, 오른쪽+) -> STM32 표준(CCW+, 왼쪽+) 변환을 위해 명시적 반전
+		stm_pkt.payload.rudder = -target_state.rudder; 
 		stm_pkt.payload.elevator = target_state.elevator;
 
 		
