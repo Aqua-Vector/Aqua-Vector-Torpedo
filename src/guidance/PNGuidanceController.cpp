@@ -25,7 +25,8 @@ float PNGuidanceController::calculateSteering(const torpedo::domain::EskfState& 
 	// 2. 상대 기하학 계산
 	Eigen::Vector2f relative_pos = target_pos - my_pos;
 	float range = relative_pos.norm();
-	float current_los = std::atan2(relative_pos.y(), relative_pos.x());
+	// [수정] atan2(x, y)를 사용하여 오른쪽을 양수(+)로 정의 (CW+ 표준)
+	float current_los = std::atan2(relative_pos.x(), relative_pos.y());
 
 	// 3. LOS Rate (lambda_dot) 계산
 	if (is_first_run_) {
@@ -39,31 +40,27 @@ float PNGuidanceController::calculateSteering(const torpedo::domain::EskfState& 
 	prev_los_angle_ = current_los;
 
 	// 4. Closing Velocity (V_c) 계산
-	// 타겟이 정지해 있다고 가정할 때, V_c는 내 속도의 타겟 방향 투영 성분
 	// V_c = - d(range)/dt
 	float V_c = V_m;
 	if (range > 0.001f) {
+		// 내 속도 벡터(my_vel)의 타겟 방향 투영
 		V_c = (my_vel.x() * (relative_pos.x() / range)) + (my_vel.y() * (relative_pos.y() / range));
 	}
 	if (V_c < 0.1f) V_c = V_m; 
 
-	// 5. 정통 PN 수식: a_n = N * V_c * los_rate
-	// N_GAIN은 보통 3~5 사이의 값을 사용 (여기서는 4.0 적용)
+	// 5. PN 수식: a_n = N * V_c * los_rate
 	const float N = 4.0f;
 	float lateral_accel = N * V_c * los_rate;
 
 	// 6. 가속도를 조향각(Degree)으로 변환
-	// delta = (L / V^2) * a_n  (L: Wheel Base, 약 0.17m)
-	// 하지만 실제 차량 모델에서는 단순화하여 속도에 반비례하도록 매핑
 	const float WHEEL_BASE = 0.17f;
 	float steering_rad = (WHEEL_BASE * lateral_accel) / (V_m * V_m);
-	
-	// 과도한 조향 방지 및 Degree 변환
 	float steering_deg = steering_rad * (180.0f / M_PI);
 
-	// 7. [안전 장치] 만약 타겟과의 각도 오차가 너무 크면(예: 90도 이상), PN보다는 타겟을 향해 먼저 꺾음
+	// 7. [안전 장치] 만약 타겟과의 각도 오차가 너무 크면(예: 45도 이상), PN보다는 타겟을 향해 먼저 꺾음
 	Eigen::Matrix3f R = my_state.q.toRotationMatrix();
-	float my_yaw = std::atan2(R(1,1), R(0,1));
+	// [수정] 내 헤딩도 atan2(x, y)로 계산하여 CW+ 일치
+	float my_yaw = std::atan2(R(0,1), R(1,1));
 	float heading_error = normalizeAngle(current_los - my_yaw);
 	
 	if (std::abs(heading_error) > (45.0f * M_PI / 180.0f)) {

@@ -15,8 +15,20 @@ bool ControlStationHandler::handle(const uint8_t* payload, size_t len, uint64_t 
     // [Add] GCS RX 로그 (약 1초 주기)
     static uint32_t gcs_rx_cnt = 0;
     if (++gcs_rx_cnt % 100 == 1) {
+        // [사용자 요구사항] 중기 유도 시에는 GCS 실측값, 종말 유도 시에는 추측항법(DR) 값 출력
+        float log_x, log_y;
+        if (tcs_.getGuidanceManager().getPhase() == GuidancePhase::MIDCOURSE) {
+            log_x = data.target_x;
+            log_y = data.target_y;
+        } else {
+            const auto& dr_target = tcs_.getGuidanceManager().getTargetState().pos;
+            log_x = dr_target.x();
+            log_y = dr_target.y();
+        }
+
         std::cout << "[COMM] RX <- GCS | Seq: " << data.seq 
-                  << " | Target: (" << data.target_x << ", " << data.target_y << ")"
+                  << " | Target: (" << std::fixed << std::setprecision(1) << log_x << ", " << log_y << ")"
+                  << " | Phase: " << static_cast<int>(tcs_.getGuidanceManager().getPhase())
                   << " | Steer: " << data.steer << std::endl;
     }
 
@@ -27,5 +39,16 @@ bool ControlStationHandler::handle(const uint8_t* payload, size_t len, uint64_t 
     cmd.elevator = 0.0f;
     ms_.onControlPacketReceived(cmd, ts);
 
+    return true;
+}
+
+bool Stm32FeedbackHandler::handle(const uint8_t* payload, size_t length, uint64_t timestamp_ms) {
+    if (length != sizeof(FeedbackPayload)) return false;
+    
+    FeedbackPayload data;
+    Marshaller::deserialize(payload, length, data);
+    
+    // Update TCS with feedback
+    tcs_.onStm32FeedbackReceived(data, timestamp_ms);
     return true;
 }

@@ -123,41 +123,35 @@ void EskfEstimator::update_lidar(const Eigen::Vector2f& z_lidar) {
 }
 
 void EskfEstimator::update_nhc() {
-    // body frame
-    // v_body = Rᵀ · v_nav
+    // [Fix] 프로젝트 표준: Y-전진, X-우측(Lateral)
+    // NHC는 옆방향(X) 속도가 0이라는 제약을 줌.
     Eigen::Matrix3f R = x_.q.toRotationMatrix();
     Eigen::Vector3f v_body = R.transpose() * x_.v;
 
-    // 측정 잔차
-    // z = 0 (가상측정), 실제 v_body[1]이 0과 얼마나 차이가 나는지
-    float y_innov = 0.0f - v_body.y();
+    // 측정 잔차: v_body.x() 가 0이어야 함
+    float x_innov = 0.0f - v_body.x();
     
     // H 행렬 (1×9)
-    // ∂v_body[y] / ∂δx 의 1번째 행
     Eigen::Matrix<float, 1, 9> H = Eigen::Matrix<float, 1, 9>::Zero();
     
-    // 속도 부분: ∂v_body[y]/∂v_nav = Rᵀ의 두 번째 행
-    H.block<1, 3>(0, 3) = R.transpose().row(1);
+    // 속도 부분: ∂v_body[x]/∂v_nav = Rᵀ의 첫 번째 행
+    H.block<1, 3>(0, 3) = R.transpose().row(0);
     
-    // 자세 부분: ∂v_body[y]/∂δθ = -[v_body]× 의 두 번째 행
+    // 자세 부분: ∂v_body[x]/∂δθ = -[v_body]× 의 첫 번째 행
     Eigen::Matrix3f v_body_skew = skew_symmetric(v_body);
-    H.block<1, 3>(0, 6) = -v_body_skew.row(1);
+    H.block<1, 3>(0, 6) = -v_body_skew.row(0);
     
-    // 위치 부분(δp): 0 (NHC는 속도/자세만 영향)
-    
-    // ─── F-4: R 행렬 (스칼라) ───
-    constexpr float sigma_nhc = 0.1f;  // 10cm/s 마진 (RC카 미끄러짐 가능성)
+    // [복구] 아커만 기하학 기반 조향: 횡방향 슬립이 없다고 가정하므로 NHC 제약을 강화함 (2.0 -> 0.1)
+    constexpr float sigma_nhc = 0.1f; 
     float R_nhc = sigma_nhc * sigma_nhc;
+
     
     // Kalman Gain
-    // S = H · P · Hᵀ + R   (스칼라)
     float S = (H * x_.P * H.transpose())(0, 0) + R_nhc;
-    
-    // K = P · Hᵀ / S   (9×1)
     Eigen::Matrix<float, 9, 1> K = x_.P * H.transpose() / S;
     
     // Error state 추정
-    Eigen::Matrix<float, 9, 1> delta_x = K * y_innov;
+    Eigen::Matrix<float, 9, 1> delta_x = K * x_innov;
     
     // P 갱신
     Eigen::Matrix<float, 9, 9> I9 = Eigen::Matrix<float, 9, 9>::Identity();

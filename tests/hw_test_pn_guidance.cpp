@@ -114,6 +114,7 @@ int main(int argc, char** argv) {
     std::cout << "\n[CALIB] 정지 상태 캘리브레이션을 시작합니다 (5초). 어뢰를 움직이지 마세요..." << std::endl;
     int init_samples = 0;
     float sum_yaw = 0.0f;
+    uint64_t last_cal_t = 0;
     auto calib_start = std::chrono::steady_clock::now();
     int last_reported_sec = -1;
     
@@ -130,9 +131,10 @@ int main(int argc, char** argv) {
         }
 
         ImuSample sample;
-        if (imu.read(sample)) {
+        if (imu.read(sample) && sample.t_us != last_cal_t) {
             sum_yaw += sample.yaw;
             init_samples++;
+            last_cal_t = sample.t_us;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -183,8 +185,8 @@ int main(int argc, char** argv) {
     utils::LowPassFilter speed_lpf(0.2f);
     guidance::PNGuidanceController pn_controller;
 
-    // 바퀴 반지름: 최신 캘리브레이션 반영 (33.9mm)
-    const float WHEEL_RADIUS = 0.0339f; 
+    // 바퀴 반지름: 최신 캘리브레이션 반영 (33.2mm)
+    const float WHEEL_RADIUS = 0.0332f; 
     const float RPS_TO_MPS = 2.0f * M_PI * WHEEL_RADIUS;
 
     std::cout << "\n>>> 어뢰를 타겟 방향(또는 기준 전방)으로 정렬하고 ENTER를 누르면 3초 후 시작합니다. <<<" << std::endl;
@@ -203,6 +205,7 @@ int main(int argc, char** argv) {
     auto last_cmd_time = start_time;
     auto last_log_time = start_time;
     uint64_t last_fb_ts = 0;
+    uint64_t last_imu_t = 0;
 
     float current_speed = 0.0f;
     float current_yaw_rad = 0.0f;
@@ -213,10 +216,11 @@ int main(int argc, char** argv) {
         float dt = std::chrono::duration<float>(now - last_update_time).count();
         // A. Ebimu 센서 데이터 갱신
         ImuSample sample;
-        if (imu.read(sample)) {
+        if (imu.read(sample) && sample.t_us != last_imu_t) {
             // [최종 수정] 사용자 정의: 오른쪽이 + (CW+)
             // EbImuUart의 yaw는 이미 parseLine에서 계산되어 나옴.
             current_yaw_rad = -(sample.yaw - yaw_offset); 
+            last_imu_t = sample.t_us;
 
             // 각도를 -PI ~ PI 사이로 정규화
             while (current_yaw_rad > M_PI) current_yaw_rad -= 2.0f * M_PI;
@@ -228,8 +232,8 @@ int main(int argc, char** argv) {
         uint64_t ts;
         if (stm_fb_mb.fetch(fb, ts) && ts != last_fb_ts) {
             last_fb_ts = ts;
-            // V=120 전진 시 RPS가 양수(M1)와 음수(M2)로 나옴
-            float raw_speed = (fb.m1_rps - fb.m2_rps) * 0.5f * RPS_TO_MPS; 
+            // [Fix] 전진 시 m1-m2가 음수일 수 있으므로 절대값 사용 (TCS와 동일 로직)
+            float raw_speed = std::abs((fb.m1_rps - fb.m2_rps) * 0.5f * RPS_TO_MPS); 
             current_speed = speed_lpf.update(raw_speed);
         }
 

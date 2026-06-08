@@ -18,7 +18,9 @@ namespace guidance {
 class TargetStateEstimator {
 private:
 	TargetState current_state_;
-	bool is_initialized_;
+	Eigen::Vector2f last_lidar_pos_ = Eigen::Vector2f::Zero();
+	bool is_initialized_ = false;
+
 
 public:
 	TargetStateEstimator();

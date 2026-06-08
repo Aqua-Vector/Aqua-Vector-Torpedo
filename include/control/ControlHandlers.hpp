@@ -44,12 +44,25 @@ private:
     float target_velocity_; // [Add] 가변 속도 지원
 
 public:
-    ControlStationHandler(TorpedoControlSystem& tcs, ManualSource& ms, float velocity = 100.0f) 
+    ControlStationHandler(TorpedoControlSystem& tcs, ManualSource& ms, float velocity = 180.0f) 
         : tcs_(tcs), ms_(ms), target_velocity_(velocity) {}
 
     void setTargetVelocity(float velocity) { target_velocity_ = velocity; }
 
     bool handle(const uint8_t* payload, size_t len, uint64_t ts) override;
+};
+
+/**
+ * @brief STM32 피드백 핸들러
+ * STM32로부터 수신된 피드백 데이터를 TCS에 전달합니다.
+ */
+class Stm32FeedbackHandler : public IMessageHandler {
+private:
+    TorpedoControlSystem& tcs_;
+
+public:
+    explicit Stm32FeedbackHandler(TorpedoControlSystem& tcs) : tcs_(tcs) {}
+    bool handle(const uint8_t* payload, size_t length, uint64_t timestamp_ms) override;
 };
 
 #endif /* CONTROL_HANDLERS_HPP_ */

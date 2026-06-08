@@ -181,21 +181,26 @@ void EbImuUart::parseLine(const std::string& line) {
 }
 
 void EbImuUart::rxLoop() {
-    std::string buffer;
-    char c;
+    char read_buf[512];
+    std::string line_buffer;
+
     while (is_running_) {
-        ssize_t n = ::read(fd_, &c, 1);
+        ssize_t n = ::read(fd_, read_buf, sizeof(read_buf));
         if (n > 0) {
-            if (c == '\n') {
-                if (!buffer.empty()) {
-                    parseLine(buffer);
-                    buffer.clear();
+            for (ssize_t i = 0; i < n; ++i) {
+                char c = read_buf[i];
+                if (c == '\n') {
+                    if (!line_buffer.empty()) {
+                        parseLine(line_buffer);
+                        line_buffer.clear();
+                    }
+                } else if (c != '\r') {
+                    line_buffer += c;
                 }
-            } else if (c != '\r') {
-                buffer += c;
             }
         } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            // No data or error, sleep briefly
+            std::this_thread::sleep_for(std::chrono::microseconds(500));
         }
     }
 }

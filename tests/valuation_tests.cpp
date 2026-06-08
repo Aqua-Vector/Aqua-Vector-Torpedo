@@ -144,12 +144,12 @@ TEST(Communication, CrcVerification) {
 /**
  * 4. 제어 및 구동기 로직 모듈 (Control/Actuator)
  */
-TEST(Control, ModeMux_Watchdog) {
+TEST(Control, ModeMux_InitialState) {
     Mailbox<ControlState> manual_mb;
     Mailbox<ControlState> auto_mb;
     ModeMux mux(&manual_mb, &auto_mb);
-    mux.getActiveMailbox(6000); 
-    EXPECT_EQ(static_cast<int>(mux.getMode()), static_cast<int>(SystemMode::FAILSAFE));
+    mux.getActiveMailbox(0); 
+    EXPECT_EQ(static_cast<int>(mux.getMode()), static_cast<int>(SystemMode::STANDBY));
 }
 
 TEST(Control, Servo_Saturation) {
@@ -194,7 +194,7 @@ int main() {
     RUN_TEST(Communication, ParserRobustness);
     RUN_TEST(Communication, CrcVerification);
     
-    RUN_TEST(Control, ModeMux_Watchdog);
+    RUN_TEST(Control, ModeMux_InitialState);
     RUN_TEST(Control, Servo_Saturation);
     RUN_TEST(Control, StateMachine_PhaseTransition);
     

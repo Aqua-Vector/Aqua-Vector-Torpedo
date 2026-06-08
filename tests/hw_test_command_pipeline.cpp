@@ -181,13 +181,6 @@ int main() {
     NetworkManager<LegacyGcsParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
-    // 6. Actuators
-    DummyPwm rudder_pwm, elevator_pwm; 
-    ServoConfig servo_cfg = {20000000, 1000000, 2000000, 45.0f, 120.0f};
-    ServoMotor rudder_servo(rudder_pwm, servo_cfg);
-    ServoMotor elevator_servo(elevator_pwm, servo_cfg);
-    ActuatorManager am(rudder_servo, elevator_servo);
-
     // 7. Sensors
     torpedo::sensor::MiniImuUart imu("/dev/ttyS3", 115200); 
     torpedo::domain::EskfEstimator eskf;
@@ -196,7 +189,7 @@ int main() {
 
     // 8. Torpedo Control System
     torpedo::domain::RpsPositionTracker rps_tracker;
-    TorpedoControlSystem tcs(mux, am, manual_source, auto_source, imu, eskf, rps_tracker, gcs_nm, stm_nm);
+    TorpedoControlSystem tcs(mux, manual_source, auto_source, imu, eskf, rps_tracker, gcs_nm, stm_nm);
 
     // 9. Register STM32 Handler
     Stm32FeedbackHandler stm_handler(tcs);

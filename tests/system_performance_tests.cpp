@@ -9,7 +9,6 @@
 
 #include "core/TorpedoControlSystem.hpp"
 #include "control/ModeMux.hpp"
-#include "actuator/ActuatorManager.hpp"
 #include "control/ManualSource.hpp"
 #include "control/AutoSource.hpp"
 #include "protocol/TorpedoParser.hpp"
@@ -30,13 +29,6 @@ public:
     ssize_t receive(uint8_t*, size_t) override { return 0; }
 };
 
-class BenchMockPwm : public IPwmChannel {
-public:
-    ErrorCode init(uint32_t) override { return ErrorCode::OK; }
-    ErrorCode setDutyCycle(uint32_t) override { return ErrorCode::OK; }
-    ErrorCode enable(bool) override { return ErrorCode::OK; }
-};
-
 /**
  * @brief System Performance & Latency Benchmark
  */
@@ -52,11 +44,6 @@ int main() {
     NetworkManager<TorpedoParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
-    BenchMockPwm pwm1, pwm2;
-    ServoConfig cfg = {20000000, 1000000, 2000000, 45.0f, 1000.0f};
-    ServoMotor rudder(pwm1, cfg), elevator(pwm2, cfg);
-    ActuatorManager am(rudder, elevator);
-    
     ManualSource ms;
     AutoSource as;
     ModeMux mux(ms.getMailbox(), as.getMailbox());
@@ -68,7 +55,7 @@ int main() {
     eskf.init(eskf_params, 0.01f);
     torpedo::domain::RpsPositionTracker rps_tracker;
 
-    TorpedoControlSystem tcs(mux, am, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
+    TorpedoControlSystem tcs(mux, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
 
     // 2. Metrics Storage
     std::vector<double> loop_times_us;

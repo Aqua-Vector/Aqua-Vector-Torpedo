@@ -23,6 +23,7 @@ struct ControlState {
 
 // 시스템 제어 모드
 enum class SystemMode : uint8_t {
+    STANDBY = 0x00,
     MANUAL = 0x01,
     AUTO = 0x02,
     FAILSAFE = 0x03,

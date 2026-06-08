@@ -79,14 +79,6 @@ int main() {
     AutoSource auto_source;
     ModeMux mode_mux(manual_source.getMailbox(), auto_source.getMailbox());
 
-    // 액추에이터 (서보)
-    LinuxPwmChannel rudder_pwm(0, 0);
-    LinuxPwmChannel elevator_pwm(1, 0);
-    ServoConfig servo_cfg = {20000000, 1000000, 2000000, 60.0f, 120.0f};
-    ServoMotor rudder_servo(rudder_pwm, servo_cfg);
-    ServoMotor elevator_servo(elevator_pwm, servo_cfg);
-    ActuatorManager actuator_manager(rudder_servo, elevator_servo);
-
     // 인지 엔진 (ESKF)
     domain::EskfEstimator eskf;
     domain::EskfInitParams eskf_params;
@@ -99,7 +91,7 @@ int main() {
     // --- STEP 3: 시스템 통합 (TCS) ---
     
     domain::RpsPositionTracker rps_tracker;
-    TorpedoControlSystem tcs(mode_mux, actuator_manager, manual_source, auto_source, imu, eskf, rps_tracker, gcs_manager, stm32_manager);
+    TorpedoControlSystem tcs(mode_mux, manual_source, auto_source, imu, eskf, rps_tracker, gcs_manager, stm32_manager);
 
     // STM32 피드백 콜백 등록
     HilFeedbackHandler stm32_handler(tcs);

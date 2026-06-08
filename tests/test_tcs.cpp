@@ -6,7 +6,6 @@
 
 #include "TorpedoControlSystem.hpp"
 #include "ModeMux.hpp"
-#include "ActuatorManager.hpp"
 #include "ManualSource.hpp"
 #include "AutoSource.hpp"
 #include "NetworkManager.hpp"
@@ -14,18 +13,9 @@
 #include "STMControlParser.hpp"
 #include "UartLink.hpp"
 #include "StaticRingBuffer.hpp"
-#include "IPwmChannel.hpp"
 #include "torpedo/sensor/MiniImuUart.hpp"
 #include "torpedo/domain/estimator/eskf_estimator.hpp"
 #include "torpedo/domain/estimator/rps_tracker.hpp"
-
-// Mock PWM for testing
-class MockPwm : public IPwmChannel {
-public:
-    ErrorCode init(uint32_t) override { return ErrorCode::OK; }
-    ErrorCode setDutyCycle(uint32_t) override { return ErrorCode::OK; }
-    ErrorCode enable(bool) override { return ErrorCode::OK; }
-};
 
 // Mock UartLink to avoid real hardware dependency during test
 class MockUartLink : public UartLink {
@@ -60,13 +50,6 @@ int main() {
     NetworkManager<TorpedoParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
-    MockPwm pwm1, pwm2;
-    // ServoConfig: period_ns, min_pulse_ns, max_pulse_ns, max_angle_deg, max_deg_per_sec
-    ServoConfig cfg = {20000000, 1000000, 2000000, 45.0f, 60.0f};
-    ServoMotor rudder(pwm1, cfg);
-    ServoMotor elevator(pwm2, cfg);
-    ActuatorManager am(rudder, elevator);
-    
     ManualSource ms;
     AutoSource as;
     ModeMux mux(ms.getMailbox(), as.getMailbox());
@@ -79,7 +62,7 @@ int main() {
 
     // 2. Initialize TCS
     torpedo::domain::RpsPositionTracker rps_tracker;
-    TorpedoControlSystem tcs(mux, am, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
+    TorpedoControlSystem tcs(mux, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
 
     if (!tcs.init()) {
         std::cerr << "TCS Init Failed" << std::endl;

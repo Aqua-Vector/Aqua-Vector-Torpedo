@@ -27,7 +27,8 @@
 #include "torpedo/domain/estimator/eskf_state.hpp"
 
 // Guidance
-#include "guidance/PNGuidanceController.hpp"
+#include "guidance/IGuidanceController.hpp"
+#include "guidance/HybridGuidanceController.hpp"
 #include "guidance/TargetStateEstimator.hpp"
 
 #ifndef M_PI
@@ -100,22 +101,27 @@ int main(int argc, char** argv) {
     float yaw_offset = 0.0f;
     float sum_yaw = 0.0f;
     int samples = 0;
+    uint64_t last_cal_t = 0;
     auto start_cal = std::chrono::steady_clock::now();
     while(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start_cal).count() < 5) {
         ImuSample s;
-        if (imu.read(s)) { sum_yaw += s.yaw; samples++; }
+        if (imu.read(s) && s.t_us != last_cal_t) { 
+            sum_yaw += s.yaw; 
+            samples++; 
+            last_cal_t = s.t_us;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    yaw_offset = sum_yaw / (float)samples;
+    yaw_offset = (samples > 0) ? (sum_yaw / (float)samples) : 0.0f;
     std::cout << "[OK] Offset: " << yaw_offset * 180.0f / M_PI << " deg" << std::endl;
 
     // 3. 로직 컴포넌트 초기화
     torpedo::domain::RpsPositionTracker rps_tracker;
     guidance::TargetStateEstimator target_estimator;
-    guidance::PNGuidanceController pn_controller;
+    std::unique_ptr<guidance::IGuidanceController> guidance_controller = std::make_unique<guidance::HybridGuidanceController>();
     utils::LowPassFilter speed_lpf(0.2f);
 
-    const float RPS_TO_MPS = 2.0f * M_PI * 0.0339f;
+    const float RPS_TO_MPS = 2.0f * M_PI * 0.0332f; // [CALIB] 0.0339 -> 0.0332 (2% error correction)
 
     // 타겟 초기 좌표 주입 (속도는 0으로 초기화됨)
     target_estimator.updateFromLidar(Eigen::Vector2f(target_x, target_y), 0.1f);
@@ -125,6 +131,7 @@ int main(int argc, char** argv) {
 
     auto last_time = std::chrono::steady_clock::now();
     uint64_t last_fb_ts = 0;
+    uint64_t last_imu_t = 0;
     float current_speed = 0.0f;
     float current_yaw = 0.0f;
 
@@ -138,8 +145,11 @@ int main(int argc, char** argv) {
 
             // A. 나의 상태 업데이트
             ImuSample imu_s;
-            if (imu.read(imu_s)) {
+            if (imu.read(imu_s) && imu_s.t_us != last_imu_t) {
+                // [Fix] 마이너스(-) 추가: 오른쪽 회전 시 (+)가 되도록 하여 내부 표준(CW+) 확립
                 current_yaw = -(imu_s.yaw - yaw_offset);
+                last_imu_t = imu_s.t_us;
+                
                 // Normalize
                 while (current_yaw > M_PI) current_yaw -= 2.0f * M_PI;
                 while (current_yaw < -M_PI) current_yaw += 2.0f * M_PI;
@@ -148,9 +158,11 @@ int main(int argc, char** argv) {
             FeedbackPayload fb; uint64_t ts;
             if (stm_fb_mb.fetch(fb, ts) && ts != last_fb_ts) {
                 last_fb_ts = ts;
-                current_speed = speed_lpf.update((fb.m1_rps - fb.m2_rps) * 0.5f * RPS_TO_MPS);
+                // [Fix] 속도 계산: 두 바퀴 회전량 합산 (0.1m/s 방지)
+                current_speed = speed_lpf.update((std::abs(fb.m1_rps) + std::abs(fb.m2_rps)) * 0.5f * RPS_TO_MPS);
             }
 
+            // [Fix] 마이너스(-) 추가: CW+ 각도를 Eigen(CCW+)용으로 번역하여 X(+) 좌표 보장
             Eigen::Quaternionf q_nav(Eigen::AngleAxisf(-current_yaw, Eigen::Vector3f::UnitZ()));
             rps_tracker.update(current_speed, q_nav, dt);
 
@@ -167,7 +179,7 @@ int main(int argc, char** argv) {
 
             // C. PN 유도 알고리즘 실행
             float dist = (virtual_target_pos - my_state.p.head<2>()).norm();
-            float rudder_cmd = 0.0f;
+            float rudder_cmd_cw = 0.0f; // 내부 표준 (오른쪽이 양수)
             float target_velocity = test_velocity;
 
             // 요격 판정 (0.1m)
@@ -176,13 +188,13 @@ int main(int argc, char** argv) {
                 std::cout << "\n[SUCCESS] Target Intercepted!" << std::endl;
                 g_keep_running = false;
             } else {
-                // 가상 타겟 위치를 기반으로 PN 조향각 산출 (Chattering 방지)
-                float raw_steer = pn_controller.calculateSteering(my_state, virtual_target_pos, dt);
-                rudder_cmd = -raw_steer; // CCW+ -> CW+
+                // Hybrid 유도 알고리즘 출력은 CW+ (오른쪽이 양수)
+                rudder_cmd_cw = guidance_controller->calculateSteering(my_state, virtual_target_pos, dt);
             }
 
             // D. STM32 송신
-            ControlPayload cmd = {target_velocity, -rudder_cmd, 0.0f};
+            // [중요] 내부 표준(CW+) -> STM32 표준(CCW+)으로 변환하기 위해 단 한 번만 반전 (-)
+            ControlPayload cmd = {target_velocity, -rudder_cmd_cw, 0.0f};
             STMPacket pkt;
             pkt.header[0] = 0xAA; pkt.header[1] = 0x55; pkt.msg_id = PACKET_FUNC_CHASSIS_CTRL;
             pkt.length = sizeof(ControlPayload); pkt.payload = cmd;
@@ -192,9 +204,9 @@ int main(int argc, char** argv) {
             static int log_cnt = 0;
             if (++log_cnt >= 10) {
                 std::cout << std::fixed << std::setprecision(2)
-                          << "\r[KINEMATIC PN] MyPos: (" << std::setw(5) << my_state.p.x() << ", " << std::setw(5) << my_state.p.y() << ")"
+                          << "\r[HYBRID PN] MyPos: (" << std::setw(5) << my_state.p.x() << ", " << std::setw(5) << my_state.p.y() << ")"
                           << " | TgtPos: (" << std::setw(5) << virtual_target_pos.x() << ", " << std::setw(5) << virtual_target_pos.y() << ")"
-                          << " | R: " << std::setw(6) << rudder_cmd
+                          << " | R_CW: " << std::setw(6) << rudder_cmd_cw
                           << " | Dist: " << std::setw(5) << dist << "m" << std::flush;
                 log_cnt = 0;
             }

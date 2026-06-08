@@ -34,18 +34,18 @@ public:
      * @param dt 경과 시간 (s)
      */
     void update(float speed, const Eigen::Quaternionf& q, float dt) {
-        // Body frame 전진 속도 벡터 (사용자 요청: Y축이 전진축)
+        // [복구] 수동 삼각함수 대신 Eigen의 표준 벡터 회전 사용
+        // Body frame 전진 속도 벡터 (Y축 전진)
         Eigen::Vector3f v_body(0.0f, speed, 0.0f);
 
         // Nav frame으로 변환
         Eigen::Vector3f v_nav = q * v_body;
 
-        // 위치 적분 (단순 오일러 적분)
+        // 위치 적분
         position_ += v_nav * dt;
 
-        // 누적 주행 거리 업데이트 (속력의 절대값을 시간 적분)
+        // 누적 주행 거리 업데이트
         odometer_ += std::abs(speed) * dt;
-
         last_speed_ = speed;
     }
 

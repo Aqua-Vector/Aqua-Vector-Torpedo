@@ -33,6 +33,7 @@ void signalHandler(int) { g_keep_running = false; }
 /**
  * @brief STM32 Feedback Handler
  */
+/*
 class Stm32FeedbackHandler : public IMessageHandler {
 private:
     TorpedoControlSystem& tcs_;
@@ -46,6 +47,7 @@ public:
         return true;
     }
 };
+*/
 
 /**
  * @brief Mock PWM Channel
@@ -68,7 +70,7 @@ int main(int argc, char** argv) {
     const std::string imu_port = "/dev/ttyUSB0";
     const std::string stm_port = "/dev/ttyPS1";
     const std::string gcs_port = "/dev/ttyS2";
-    float test_velocity = 100.0f;
+    float test_velocity = 120.0f;
 
     // Only velocity is taken as an optional argument
     if (argc > 1) {
@@ -110,13 +112,6 @@ int main(int argc, char** argv) {
     NetworkManager<ControlStationParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
-    // 6. Actuators
-    DummyPwm rudder_pwm, elevator_pwm; 
-    ServoConfig servo_cfg = {20000000, 1000000, 2000000, 45.0f, 120.0f};
-    ServoMotor rudder_servo(rudder_pwm, servo_cfg);
-    ServoMotor elevator_servo(elevator_pwm, servo_cfg);
-    ActuatorManager am(rudder_servo, elevator_servo);
-
     // 7. Sensors
     torpedo::sensor::EbImuUart imu(imu_port, 921600); 
     torpedo::domain::EskfEstimator eskf;
@@ -125,7 +120,7 @@ int main(int argc, char** argv) {
     eskf.init(eskf_params, 0.01f);
 
     // 8. Torpedo Control System
-    TorpedoControlSystem tcs(mux, am, manual_source, auto_source, imu, eskf, rps_tracker, gcs_nm, stm_nm);
+    TorpedoControlSystem tcs(mux, manual_source, auto_source, imu, eskf, rps_tracker, gcs_nm, stm_nm);
 
     // 9. Handlers
     ControlStationHandler gcs_handler(tcs, manual_source, test_velocity);

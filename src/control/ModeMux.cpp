@@ -1,8 +1,9 @@
 #include "ModeMux.hpp"
 #include <algorithm>
+#include <iostream>
 
 ModeMux::ModeMux(Mailbox<ControlState>* manual_source, Mailbox<ControlState>* auto_source)
-	: current_mode_(SystemMode::MANUAL), manual_source_(manual_source), auto_source_(auto_source) {
+	: current_mode_(SystemMode::STANDBY), manual_source_(manual_source), auto_source_(auto_source) {
 	setupSafeState();
 }
 
@@ -31,8 +32,10 @@ void ModeMux::notifyHardwareError() {
 }
 
 Mailbox<ControlState>* ModeMux::getActiveMailbox(uint64_t current_time_ms) {
-	// 1. 하드웨어 락다운 또는 소프트웨어 FAILSAFE 상태면 Safe 반환
-	if (current_mode_ == SystemMode::LOCKDOWN || current_mode_ == SystemMode::FAILSAFE) {
+	// 1. 하드웨어 락다운, FAILSAFE, 또는 초기 STANDBY 상태면 Safe 반환
+	if (current_mode_ == SystemMode::LOCKDOWN || 
+		current_mode_ == SystemMode::FAILSAFE || 
+		current_mode_ == SystemMode::STANDBY) {
 		return &safe_mailbox_;
 	}
 
@@ -47,10 +50,21 @@ Mailbox<ControlState>* ModeMux::getActiveMailbox(uint64_t current_time_ms) {
 	// 3. Watchdog 체크 (데이터 신선도 검사)
 	uint64_t last_update = target_source->getLastUpdateTime();
 	
-	// 데이터가 없거나, 시스템 시계가 꼬였거나(미래 데이터), 타임아웃이 발생한 경우
-	if (last_update == 0 || current_time_ms < last_update || (current_time_ms - last_update) > WATCHDOG_TIMEOUT_MS) {
-		current_mode_ = SystemMode::FAILSAFE;
-		return &safe_mailbox_;
+	if (last_update != 0) {
+		// [BUG FIX] 미세한 시간 역전(Clock Skew) 허용 로직 추가
+		// 데이터 시각이 현재보다 미래인 경우, 100ms 이내라면 "매우 신선한 데이터"로 간주함.
+		bool is_future_data = (last_update > current_time_ms);
+		uint64_t skew_or_age = is_future_data ? (last_update - current_time_ms) : (current_time_ms - last_update);
+
+		if ((is_future_data && skew_or_age > 100) || (!is_future_data && skew_or_age > WATCHDOG_TIMEOUT_MS)) {
+			if (current_mode_ != SystemMode::FAILSAFE) {
+				std::cerr << "[ModeMux] Watchdog Timeout! Mode: " << static_cast<int>(current_mode_) 
+						<< " | Last update: " << last_update << " | Current: " << current_time_ms 
+						<< " | Diff: " << (is_future_data ? "-" : "") << skew_or_age << "ms" << std::endl;
+				current_mode_ = SystemMode::FAILSAFE;
+			}
+			return &safe_mailbox_;
+		}
 	}
 
 	// 4. 모든 조건 만족 시 해당 소스 주소 반환

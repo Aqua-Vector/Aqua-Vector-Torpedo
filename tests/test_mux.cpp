@@ -8,7 +8,8 @@
 // 테스트 결과를 보기 좋게 출력하는 헬퍼 함수
 void printState(uint64_t time_ms, SystemMode mode, const ControlState& state) {
     std::string mode_str = "UNKNOWN ";
-    if (mode == SystemMode::MANUAL) mode_str = "MANUAL  ";
+    if (mode == SystemMode::STANDBY) mode_str = "STANDBY ";
+    else if (mode == SystemMode::MANUAL) mode_str = "MANUAL  ";
     else if (mode == SystemMode::AUTO) mode_str = "AUTO    ";
     else if (mode == SystemMode::FAILSAFE) mode_str = "FAILSAFE";
     else if (mode == SystemMode::LOCKDOWN) mode_str = "LOCKDOWN";

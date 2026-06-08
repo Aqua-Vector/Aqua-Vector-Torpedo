@@ -5,9 +5,11 @@
 #include "torpedo/domain/estimator/eskf_state.hpp"
 #include <Eigen/Dense>
 
+#include "IGuidanceController.hpp"
+
 namespace guidance {
 
-class PNGuidanceController {
+class PNGuidanceController : public IGuidanceController {
 private:
 	/**
 	 * @brief 라디안 각도를 -PI ~ PI 범위로 정규화

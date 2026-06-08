@@ -67,8 +67,8 @@ public:
 class TestableTCS : public TorpedoControlSystem {
 public:
     using TorpedoControlSystem::TorpedoControlSystem;
-    void tick(uint64_t current_time_ms) {
-        processControlCycle(current_time_ms);
+    void tick(uint64_t current_time_ms, const torpedo::domain::EskfState& state) {
+        processControlCycle(current_time_ms, state);
     }
 };
 
@@ -86,10 +86,6 @@ bool run_test() {
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
     MockPwm pwm_rudder, pwm_elevator;
-    ServoConfig cfg = {20000000, 1000000, 2000000, 45.0f, 5000.0f}; // 5000 deg/sec = 50 deg per 10ms tick
-    ServoMotor rudder(pwm_rudder, cfg);
-    ServoMotor elevator(pwm_elevator, cfg);
-    ActuatorManager am(rudder, elevator);
     
     ManualSource ms;
     AutoSource as;
@@ -102,7 +98,7 @@ bool run_test() {
     eskf.init(eskf_params, 0.01f);
 
     torpedo::domain::RpsPositionTracker rps_tracker;
-    TestableTCS tcs(mux, am, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
+    TestableTCS tcs(mux, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
 
     // Start managers to allow send() to work and threads to process
     stm_nm.start();
@@ -116,7 +112,7 @@ bool run_test() {
     ControlPayload manual_cmd = {3.5f, 15.0f, -10.0f};
     ms.onControlPacketReceived(manual_cmd, virtual_time_ms);
     
-    tcs.tick(virtual_time_ms);
+    tcs.tick(virtual_time_ms, eskf.state());
     std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Allow NM thread to process
 
     // Verify STM32 Packet
@@ -149,7 +145,7 @@ bool run_test() {
     ControlPayload manual_noise = {99.0f, 99.0f, 99.0f};
     ms.onControlPacketReceived(manual_noise, virtual_time_ms);
 
-    tcs.tick(virtual_time_ms);
+    tcs.tick(virtual_time_ms, eskf.state());
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     // Guidance should produce a positive rudder to turn right
@@ -163,12 +159,12 @@ bool run_test() {
     mux.setMode(SystemMode::MANUAL);
     // Update once to have a valid last_update
     ms.onControlPacketReceived(manual_cmd, virtual_time_ms);
-    tcs.tick(virtual_time_ms);
+    tcs.tick(virtual_time_ms, eskf.state());
     ASSERT_EQ(static_cast<int>(mux.getMode()), static_cast<int>(SystemMode::MANUAL));
 
     virtual_time_ms += 600; // Timeout > 500ms
     
-    tcs.tick(virtual_time_ms);
+    tcs.tick(virtual_time_ms, eskf.state());
 
     ASSERT_EQ(static_cast<int>(mux.getMode()), static_cast<int>(SystemMode::FAILSAFE));
     ASSERT_NEAR(pwm_rudder.last_duty_ns, 1500000, 100); // Neutral

@@ -12,11 +12,13 @@ void TargetStateEstimator::reset() {
 	current_state_.pos.setZero();
 	current_state_.vel.setZero();
 	current_state_.is_valid = false;
+	last_lidar_pos_.setZero();
 }
 
 void TargetStateEstimator::updateFromLidar(const Eigen::Vector2f& raw_pos, float dt_sec) {
 	if (!is_initialized_) {
 		current_state_.pos = raw_pos;
+		last_lidar_pos_ = raw_pos;
 		current_state_.vel.setZero();
 		current_state_.is_valid = true;
 		is_initialized_ = true;
@@ -24,12 +26,13 @@ void TargetStateEstimator::updateFromLidar(const Eigen::Vector2f& raw_pos, float
 	}
 
 	if (dt_sec > 0.0f) {
-		// [Target DR] 더미 데이터 특성을 활용한 속도 추출
-		// 데이터가 100% 정확하므로 노이즈 필터링 없이 즉시 수용 (alpha = 1.0)
-		Eigen::Vector2f instant_vel = (raw_pos - current_state_.pos) / dt_sec;
+		// [BUG FIX] 중간에 추측항법(predict)으로 변한 current_state_.pos 대신,
+		// 순수 Lidar 실측 좌표 간의 차이를 사용하여 타겟의 진짜 속도를 추출함.
+		Eigen::Vector2f instant_vel = (raw_pos - last_lidar_pos_) / dt_sec;
 		
 		current_state_.vel = instant_vel;
-		current_state_.pos = raw_pos;
+		current_state_.pos = raw_pos;   // 현재 위치는 실측값으로 보정
+		last_lidar_pos_ = raw_pos;      // 다음 속도 계산을 위해 저장
 	}
 	
 	current_state_.is_valid = true;

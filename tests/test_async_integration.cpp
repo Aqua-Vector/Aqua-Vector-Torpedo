@@ -106,10 +106,6 @@ void run_async_integration_test() {
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
     AsyncMockPwm pwm_rudder, pwm_elevator;
-    ServoConfig cfg = {20000000, 1000000, 2000000, 45.0f, 1000.0f};
-    ServoMotor rudder(pwm_rudder, cfg);
-    ServoMotor elevator(pwm_elevator, cfg);
-    ActuatorManager am(rudder, elevator);
     
     ManualSource ms;
     AutoSource as;
@@ -122,7 +118,7 @@ void run_async_integration_test() {
     eskf.init(eskf_params, 0.01f);
 
     torpedo::domain::RpsPositionTracker rps_tracker;
-    TorpedoControlSystem tcs(mux, am, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
+    TorpedoControlSystem tcs(mux, ms, as, imu, eskf, rps_tracker, gcs_nm, stm_nm);
 
     // Register GCS Handler (as in main.cpp)
     GcsControlHandler gcs_handler(ms);

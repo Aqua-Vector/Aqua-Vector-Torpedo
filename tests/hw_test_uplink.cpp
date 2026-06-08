@@ -11,10 +11,8 @@
 #include "core/TorpedoControlSystem.hpp"
 #include "core/NetworkManager.hpp"
 #include "control/ModeMux.hpp"
-#include "actuator/ActuatorManager.hpp"
 #include "control/ManualSource.hpp"
 #include "control/AutoSource.hpp"
-#include "hal/IPwmChannel.hpp"
 #include "communication/UartLink.hpp"
 #include "protocol/TorpedoParser.hpp"
 #include "control/STMControlParser.hpp"
@@ -170,20 +168,6 @@ public:
     }
 };
 
-/**
- * @brief Mock PWM Channel
- */
-class DummyPwm : public IPwmChannel {
-public:
-    uint32_t current_duty = 0;
-    ErrorCode init(uint32_t) override { return ErrorCode::OK; }
-    ErrorCode setDutyCycle(uint32_t duty_ns) override { 
-        current_duty = duty_ns;
-        return ErrorCode::OK; 
-    }
-    ErrorCode enable(bool) override { return ErrorCode::OK; }
-};
-
 int main() {
     std::signal(SIGINT, signalHandler);
 
@@ -213,13 +197,6 @@ int main() {
     NetworkManager<LegacyGcsParser, UartLink, GenericPacket<TorpedoUplinkPayload, uint16_t>> gcs_nm(gcs_link, gcs_parser, gcs_tx_q);
     NetworkManager<STMControlParser, UartLink, STMPacket> stm_nm(stm_link, stm_parser, stm_tx_q);
 
-    // 6. Actuators
-    DummyPwm rudder_pwm, elevator_pwm; 
-    ServoConfig servo_cfg = {20000000, 1000000, 2000000, 45.0f, 120.0f};
-    ServoMotor rudder_servo(rudder_pwm, servo_cfg);
-    ServoMotor elevator_servo(elevator_pwm, servo_cfg);
-    ActuatorManager am(rudder_servo, elevator_servo);
-
     // 7. Sensors
     torpedo::sensor::MiniImuUart imu("/dev/ttyS3", 115200); 
     torpedo::domain::EskfEstimator eskf;
@@ -228,7 +205,7 @@ int main() {
     eskf.init(eskf_params, 0.01f);
 
     // 8. Torpedo Control System
-    TorpedoControlSystem tcs(mux, am, manual_source, auto_source, imu, eskf, rps_tracker, gcs_nm, stm_nm);
+    TorpedoControlSystem tcs(mux, manual_source, auto_source, imu, eskf, rps_tracker, gcs_nm, stm_nm);
     gcs_parser.setTcs(&tcs);
 
     // 9. Register STM32 Handler

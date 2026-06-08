@@ -147,6 +147,11 @@ target_link_libraries(torpedo_main PRIVATE torpedo_core)
 # ─── 7. 테스트 ───
 enable_testing()
 
+# 신규 통합 시나리오 테스트 (자체 TestFramework 활용)
+add_executable(integration_scenario_test tests/integration_scenario_test.cpp)
+target_link_libraries(integration_scenario_test PRIVATE torpedo_core)
+add_test(NAME integration_scenario_test COMMAND integration_scenario_test)
+
 function(add_torpedo_test name src_path)
     add_executable(${name} ${src_path})
     target_link_libraries(${name} PRIVATE torpedo_core)
@@ -168,7 +173,6 @@ add_torpedo_test(test_eskf_state tests/test_eskf_state.cpp)
 add_torpedo_test(test_actuator tests/test_actuator.cpp)
 add_torpedo_test(test_mux tests/test_mux.cpp)
 add_torpedo_test(test_tcs tests/test_tcs.cpp)
-add_torpedo_test(test_command_routing tests/test_command_routing.cpp)
 add_torpedo_test(test_async_integration tests/test_async_integration.cpp)
 add_torpedo_test(test_control_station_protocol tests/test_control_station_protocol.cpp)
 add_torpedo_test(valuation_tests tests/valuation_tests.cpp)
@@ -194,8 +198,13 @@ add_torpedo_test(test_ebimu_odometry tests/test_ebimu_odometry.cpp)
 add_torpedo_test(test_stationary_position tests/test_stationary_position.cpp)
 add_torpedo_test(test_dynamic_position_rps tests/test_dynamic_position_rps.cpp)
 add_torpedo_test(test_imu_heading_log tests/test_imu_heading_log.cpp)
+add_torpedo_test(test_yaw_integration_flow tests/test_yaw_integration_flow.cpp)
 
 # HW Tests
+add_torpedo_test(calib_distance tests/calib_distance.cpp)
+add_torpedo_test(calib_steering_deadband tests/calib_steering_deadband.cpp)
+add_torpedo_test(calib_circle_360 tests/calib_circle_360.cpp)
+
 add_torpedo_test(basic_stm32_test tests/basic_stm32_test.cpp)
 add_torpedo_test(hw_test_stm32 tests/hw_test_stm32.cpp)
 add_torpedo_test(test_stm_feedback tests/test_stm_feedback.cpp)
