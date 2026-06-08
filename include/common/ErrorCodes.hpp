@@ -1,0 +1,33 @@
+#ifndef ERROR_CODES_HPP_
+#define ERROR_CODES_HPP_
+
+#include <cstdint>
+
+enum class ErrorCode : uint16_t {
+	OK = 0,
+
+	// System Common
+	ERR_INVALID_PARAMETER = 1,
+	ERR_TIMEOUT = 2,
+
+	// DC Motor
+	ERR_DC_PWM_INIT_FAIL = 101,
+	ERR_DC_GPIO_INIT_FAIL = 102,
+	ERR_DC_SPEED_OUT_OF_RANGE = 103,
+	ERR_DC_GPIO_WRITE_FAIL = 104,
+
+	// Servo Motor
+	ERR_SERVO_PWM_INIT_FAIL = 201,
+	ERR_SERVO_ANGLE_OUT_OF_RANGE = 202,
+
+	// Actuator Manager
+	ERR_PROPELLER_INIT_FAIL = 301,
+	ERR_RUDDER_INIT_FAIL = 302,
+	ERR_ELEVATOR_INIT_FAIL = 303,
+
+	// Generic Hardware/IO
+	ERR_HW_INIT_FAILED = 401,
+	ERR_IO_WRITE_FAILED = 402
+};
+
+#endif /* ERROR_CODES_HPP_ */
